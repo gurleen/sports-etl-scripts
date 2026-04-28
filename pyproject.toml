@@ -1,0 +1,13 @@
+[project]
+name = "etl-scripts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "adbc-driver-postgresql>=1.11.0",
+    "loguru>=0.7.3",
+    "polars>=1.40.1",
+    "pybaseball>=2.2.7",
+    "typer>=0.25.0",
+]
