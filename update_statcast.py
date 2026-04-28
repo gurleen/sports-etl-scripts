@@ -59,6 +59,15 @@ def update_full():
 
 
 @app.command()
+def season(year: int):
+    start_date = datetime(year, 3, 1)  # Start of the season (March 1st)
+    end_date = datetime(year, 11, 30)   # End of the season (November 30th)
+    data = get_statcast_data(start_date, end_date)
+    load_data_to_db(data)
+    logger.info(f"Season {year} update completed")
+
+
+@app.command()
 def update_recent(days: int = 1):
     today = datetime.today()
     start_date = today - timedelta(days=days)
