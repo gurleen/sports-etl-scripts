@@ -2,6 +2,7 @@ import typer
 from datetime import datetime, timedelta
 from loguru import logger
 import pybaseball as pb  # type: ignore
+import pybaseball.cache as pb_cache  # type: ignore
 import polars as pl
 import os
 
@@ -13,7 +14,7 @@ DATABASE_URL = f"postgresql://postgres:{POSTGRES_PASSWORD}@localhost:5432/postgr
 EARLIEST_DATA_DATE = datetime(2017, 1, 1)
 STATCAST_TABLE_NAME = "statcast_data"
 
-
+pb_cache.enable()  # Enable caching for pybaseball to avoid redundant API calls
 app = typer.Typer()
 
 
