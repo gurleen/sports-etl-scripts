@@ -9,5 +9,6 @@ dependencies = [
     "loguru>=0.7.3",
     "polars>=1.40.1",
     "pybaseball>=2.2.7",
+    "sqlalchemy>=2.0.49",
     "typer>=0.25.0",
 ]
