@@ -34,6 +34,7 @@ def get_statcast_data(start_date: datetime, end_date: datetime):
         pl.from_pandas(raw_data)
         .with_columns(pl.col("game_date").str.to_date("%Y-%m-%d"))
         .filter(pl.col("game_type").eq("R"))
+        .drop("spin_dir", "spin_rate_deprecated", "break_angle_deprecated", "break_length_deprecated", "tfs_deprecated", "tfs_zulu_deprecated")
     )
 
     logger.info(f"Fetched {len(data)} records")
