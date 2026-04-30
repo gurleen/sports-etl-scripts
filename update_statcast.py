@@ -12,7 +12,7 @@ if not POSTGRES_PASSWORD:
 
 DATABASE_URL = f"postgresql://postgres:{POSTGRES_PASSWORD}@localhost:5432/postgres"
 EARLIEST_DATA_DATE = datetime(2017, 1, 1)
-STATCAST_TABLE_NAME = "statcast_data"
+STATCAST_TABLE_NAME = "statcast"
 
 pb_cache.enable()  # Enable caching for pybaseball to avoid redundant API calls
 app = typer.Typer()
@@ -74,6 +74,15 @@ def update_recent(days: int = 1):
     data = get_statcast_data(start_date, today)
     load_data_to_db(data)
     logger.info("Recent update completed")
+
+
+@app.command()
+def write_to_file(season: int, filename: str):
+    start_date = datetime(season, 3, 1)
+    end_date = datetime(season, 11, 30)
+    data = get_statcast_data(start_date, end_date)
+    data.write_csv(filename)
+    logger.info(f"Data written to {filename}")
 
 
 if __name__ == "__main__":
