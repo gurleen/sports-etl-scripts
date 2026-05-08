@@ -33,11 +33,14 @@ services:
     build: .
     depends_on:
       - prefect-server
+    # Pass secrets without Compose ${...} interpolation (breaks URLs with $, #, etc.).
+    env_file:
+      - path: .env
+        required: false
     environment:
       PREFECT_API_URL: http://prefect-server:4200/api
       PREFECT_LOGGING_LEVEL: INFO
       ETL_REPO_ROOT: /app
-      DATABASE_URL: ${DATABASE_URL:-}
     command: prefect worker start --pool etl-pool --type process
     restart: unless-stopped
     extra_hosts:

@@ -10,9 +10,25 @@ import polars as pl
 import pybaseball as pb  # type: ignore
 import pybaseball.cache as pb_cache  # type: ignore
 from loguru import logger
+from pathlib import Path
+
 from sqlalchemy import create_engine, text
 
+
+def _load_repo_dotenv() -> None:
+    """Load repo-root ``.env`` for local runs (``uv run`` does not load it automatically)."""
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    repo_root = Path(__file__).resolve().parents[1]
+    load_dotenv(repo_root / ".env", override=False)
+
+
+_load_repo_dotenv()
+
 STATCAST_TABLE_NAME = "statcast"
+EARLIEST_DATA_DATE = datetime(2017, 1, 1)
 _pb_cache_enabled = False
 
 
@@ -21,7 +37,6 @@ def _ensure_pybaseball_cache() -> None:
     if not _pb_cache_enabled:
         pb_cache.enable()
         _pb_cache_enabled = True
-EARLIEST_DATA_DATE = datetime(2017, 1, 1)
 
 _DEPRECATED_COLUMNS = (
     "spin_dir",

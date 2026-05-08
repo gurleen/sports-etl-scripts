@@ -12,7 +12,7 @@ Use **self-hosted Prefect** (Docker Compose in [`docker-compose.yml`](../docker-
 |----------|---------|
 | `PREFECT_API_URL` | Worker and CLI point at the API (Compose: `http://prefect-server:4200/api`; laptop: `http://127.0.0.1:4200/api`). |
 | `ETL_REPO_ROOT` | Absolute path to this repo on the machine running the worker. Required for the `set_working_directory` pull step in `prefect.yaml`. Compose sets it to `/app` inside the worker image. |
-| `DATABASE_URL` | Full Postgres URL for **your warehouse** (Statcast table). Preferred for Docker/workers. |
+| `DATABASE_URL` | Full Postgres URL for **your warehouse** (Statcast table). For Compose, put it in a repo-root **`.env`** file (see below); for local `uv run`, the app loads that file via `python-dotenv`. |
 | `POSTGRES_PASSWORD` | If `DATABASE_URL` is unset, URL is built with `POSTGRES_HOST` (default `172.237.129.152`), `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_DB`. |
 
 Optional: store the warehouse URL in a Prefect **Secret** block named `etl-database-url` (see below). Flows try `DATABASE_URL`, then that block, then `POSTGRES_*`.
@@ -60,12 +60,24 @@ Secret(value='postgresql://user:pass@host:5432/db').save('etl-database-url', ove
 
 ## Docker Compose (server + metadata Postgres + worker)
 
-From the repo root:
+From the repo root, add a **`.env`** file (same directory as `docker-compose.yml`) with your warehouse URL:
 
 ```bash
-export DATABASE_URL='postgresql://...'   # your warehouse; reachable from the worker container
+# .env (do not commit; already gitignored)
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
+```
+
+Then:
+
+```bash
 docker compose up -d --build
 ```
+
+The worker service uses Compose **`env_file`** so the value is not parsed as `${...}` interpolation (which often strips or corrupts URLs that contain `$`, `#`, or spaces). Recreate the worker after changing `.env`: `docker compose up -d --force-recreate prefect-worker`.
+
+You can still **override** from the shell for a one-off: `docker compose run --rm -e DATABASE_URL='...' prefect-worker ...` (not needed for normal use).
+
+**Local Prefect (no Docker):** `uv run prefect worker` does not load `.env` for you; this repo calls `load_dotenv()` from [`etl_scripts/statcast`](../etl_scripts/statcast.py) so `DATABASE_URL` in repo-root `.env` is picked up when flows import that module.
 
 - **Prefect UI**: host port `4200` on the machine running Compose.
 - **Prefect metadata DB**: service `prefect-db` (user/password/db `prefect` / `prefect` / `prefect` in the default compose file—change these for production).

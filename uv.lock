@@ -714,6 +714,7 @@ dependencies = [
     { name = "prefect" },
     { name = "psycopg2-binary" },
     { name = "pybaseball" },
+    { name = "python-dotenv" },
     { name = "sqlalchemy" },
     { name = "typer" },
 ]
@@ -726,6 +727,7 @@ requires-dist = [
     { name = "prefect", specifier = ">=3.1.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.12" },
     { name = "pybaseball", specifier = ">=2.2.7" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.49" },
     { name = "typer", specifier = ">=0.25.0" },
 ]
