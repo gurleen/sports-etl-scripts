@@ -131,6 +131,27 @@ This gives alerts without opening the UI.
 
 Downstream steps (for example **refresh materialized views** after a load) fit naturally as extra `@task`s in the same flow, chained after the ingest task.
 
+## UI behind a reverse proxy or tunnel (Cloudflare, nginx, etc.)
+
+If you open the UI at something like `https://sports-etl.gurleen.net/` but see **“Can't connect to Server API at http://127.0.0.1:4200/api”**, the SPA is still using Prefect’s default API base. Set the **public** API URL the browser should use (same scheme and host as the UI, usually with `/api`):
+
+```bash
+# In repo-root .env (loaded by Compose for prefect-server)
+PREFECT_UI_API_URL=https://sports-etl.gurleen.net/api
+```
+
+Restart the server container after changing `.env`: `docker compose up -d --force-recreate prefect-server`.
+
+Your tunnel must forward **`/`** (UI) and **`/api`** (and typically **`/api/`** websockets if used) to the Prefect server process. See Prefect’s [self-hosted](https://docs.prefect.io/v3/advanced/self-hosted) and [security / proxy](https://docs.prefect.io/v3/advanced/security-settings) notes for TLS and CORS if the UI and API are on different origins.
+
+**Workers and CLI** on other machines must use the same public API, not `127.0.0.1`:
+
+```bash
+export PREFECT_API_URL=https://sports-etl.gurleen.net/api
+```
+
+In Docker Compose on the **same host** as the server, the worker keeps using `http://prefect-server:4200/api` (internal); only browsers and remote CLIs need the public URL.
+
 ## Troubleshooting
 
 - **`Unable to read the specified config file ... prefect.yaml`**: run CLI commands from the repo root or pass `--prefect-file /path/to/prefect.yaml`.

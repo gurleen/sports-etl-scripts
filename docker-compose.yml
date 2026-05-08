@@ -20,6 +20,10 @@ services:
     depends_on:
       prefect-db:
         condition: service_healthy
+    # Optional: PREFECT_UI_API_URL in .env so the browser calls your public API (tunnel / HTTPS).
+    env_file:
+      - path: .env
+        required: false
     environment:
       PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://prefect:prefect@prefect-db:5432/prefect
       PREFECT_SERVER_ANALYTICS_ENABLED: "false"
