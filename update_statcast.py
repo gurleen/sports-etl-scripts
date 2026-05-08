@@ -1,79 +1,46 @@
-import typer
+"""Typer CLI for ad-hoc Statcast updates (scheduled runs use Prefect flows)."""
+
 from datetime import datetime, timedelta
+
+import typer
 from loguru import logger
-import pybaseball as pb  # type: ignore
-import pybaseball.cache as pb_cache  # type: ignore
-import polars as pl
-import os
 
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
-if not POSTGRES_PASSWORD:
-    raise ValueError("POSTGRES_PASSWORD environment variable is not set.")
+from etl_scripts.statcast import (
+    EARLIEST_DATA_DATE,
+    get_database_url,
+    get_statcast_data,
+    load_data_to_db,
+)
 
-DATABASE_URL = f"postgresql://postgres:{POSTGRES_PASSWORD}@localhost:5432/postgres"
-EARLIEST_DATA_DATE = datetime(2017, 1, 1)
-STATCAST_TABLE_NAME = "statcast"
-
-pb_cache.enable()  # Enable caching for pybaseball to avoid redundant API calls
 app = typer.Typer()
-
-
-def format_date(date: datetime) -> str:
-    return date.strftime("%Y-%m-%d")
-
-
-def get_statcast_data(start_date: datetime, end_date: datetime):
-    logger.info(f"Fetching Statcast data from {start_date} to {end_date}")
-
-    start_date_str = format_date(start_date)
-    end_date_str = format_date(end_date)
-
-    raw_data = pb.statcast(start_dt=start_date_str, end_dt=end_date_str)
-
-    data = (
-        pl.from_pandas(raw_data)
-        .with_columns(pl.col("game_date").str.to_date("%Y-%m-%d"))
-        .filter(pl.col("game_type").eq("R"))
-        .drop("spin_dir", "spin_rate_deprecated", "break_angle_deprecated", "break_length_deprecated", "tfs_deprecated", "tfs_zulu_deprecated", "umpire", "sv_id")
-    )
-
-    logger.info(f"Fetched {len(data)} records")
-    return data
-
-
-def load_data_to_db(data: pl.DataFrame):
-    logger.info("Loading data into the database")
-    rows_affected = data.write_database(            # pyright: ignore[reportUnknownMemberType]
-        table_name=STATCAST_TABLE_NAME,
-        connection=DATABASE_URL,
-        if_table_exists="append",
-    )
-    logger.info(f"Rows affected: {rows_affected}")
 
 
 @app.command()
 def update_full():
     today = datetime.today()
+    url = get_database_url()
     data = get_statcast_data(EARLIEST_DATA_DATE, today)
-    load_data_to_db(data)
+    load_data_to_db(data, database_url=url)
     logger.info("Full update completed")
 
 
 @app.command()
 def season(year: int):
-    start_date = datetime(year, 3, 1)  # Start of the season (March 1st)
-    end_date = datetime(year, 11, 30)   # End of the season (November 30th)
+    start_date = datetime(year, 3, 1)
+    end_date = datetime(year, 11, 30)
+    url = get_database_url()
     data = get_statcast_data(start_date, end_date)
-    load_data_to_db(data)
-    logger.info(f"Season {year} update completed")
+    load_data_to_db(data, database_url=url)
+    logger.info("Season {} update completed", year)
 
 
 @app.command()
 def update_recent(days: int = 1):
     today = datetime.today()
     start_date = today - timedelta(days=days)
+    url = get_database_url()
     data = get_statcast_data(start_date, today)
-    load_data_to_db(data)
+    load_data_to_db(data, database_url=url)
     logger.info("Recent update completed")
 
 
@@ -83,7 +50,7 @@ def write_to_file(season: int, filename: str):
     end_date = datetime(season, 11, 30)
     data = get_statcast_data(start_date, end_date)
     data.write_csv(filename)
-    logger.info(f"Data written to {filename}")
+    logger.info("Data written to {}", filename)
 
 
 if __name__ == "__main__":

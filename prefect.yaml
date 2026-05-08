@@ -1,0 +1,39 @@
+# Prefect 3 project — keep server and CLI on the same minor version (see docs/orchestration.md).
+prefect-version: "3.7.0"
+name: etl-scripts
+
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: "{{ $ETL_REPO_ROOT }}"
+
+deployments:
+  - name: statcast-update-recent
+    description: Incremental Statcast append (default schedule mirrors a typical nightly cron).
+    tags:
+      - statcast
+    schedule:
+      cron: "0 6 * * *"
+      timezone: UTC
+    entrypoint: flows/statcast_flow.py:statcast_update_recent
+    parameters:
+      days: 1
+    work_pool:
+      name: etl-pool
+
+  - name: statcast-update-full
+    description: Full Statcast history from EARLIEST_DATA_DATE through today (manual / rare).
+    tags:
+      - statcast
+    entrypoint: flows/statcast_flow.py:statcast_update_full
+    work_pool:
+      name: etl-pool
+
+  - name: statcast-season
+    description: Statcast for one MLB season (March–November). Override `year` when triggering a run.
+    tags:
+      - statcast
+    entrypoint: flows/statcast_flow.py:statcast_season
+    parameters:
+      year: 2025
+    work_pool:
+      name: etl-pool

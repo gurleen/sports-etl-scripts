@@ -8,6 +8,7 @@ dependencies = [
     "adbc-driver-postgresql>=1.11.0",
     "loguru>=0.7.3",
     "polars>=1.40.1",
+    "prefect>=3.1.0",
     "psycopg2-binary>=2.9.12",
     "pybaseball>=2.2.7",
     "sqlalchemy>=2.0.49",

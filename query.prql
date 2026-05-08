@@ -1,0 +1,171 @@
+prql target:sql.postgres
+
+let hitEvents = ["single", "double", "triple", "home_run"]
+let atBatEvents = [
+    "single", 
+    "double", 
+    "triple", 
+    "home_run", 
+    "strikeout",
+    "field_out",
+    "force_out",
+    "fielders_choice",
+    "field_error",
+    "grounded_into_double_play",
+    "strikeout_double_play",
+    "fielders_choice_out"
+]
+let nonAtBatEvents = [
+    "walk",
+    "hit_by_pitch",
+    "sac_fly",
+    "sac_bunt",
+    "sac_fly_double_play",
+    "catcher_interference",
+    "intent_walk",
+    "catchers_interf"
+]
+
+let to_bool = b -> case [
+    b => 1,
+    true => 0
+]
+
+let batting_logs = (
+    from statcast
+    filter events != "truncated_pa"
+    filter events != ""
+    filter game_type == "R"
+    derive {
+        plate_appearance = 1,
+        at_bat = to_bool(events | in nonAtBatEvents | not),
+        hit = to_bool(events | in hitEvents),
+        walk = to_bool(events == "walk"),
+        intent_walk = to_bool(events == "intent_walk"),
+        hit_by_pitch = to_bool(events == "hit_by_pitch"),
+        single = to_bool(events == "single"),
+        double = to_bool(events == "double"),
+        triple = to_bool(events == "triple"),
+        home_run = to_bool(events == "home_run"),
+        sac_fly = to_bool(events == "sac_fly")
+    }
+    select {
+        game_date,
+        game_pk,
+        game_year,
+        batter,
+        walk,
+        intent_walk,
+        hit_by_pitch,
+        at_bat,
+        plate_appearance,
+        hit,
+        single,
+        double,
+        triple,
+        home_run,
+        sac_fly,
+    }
+)
+
+let batting_stats = (
+    from batting_logs
+    derive {
+        all_walks = walk + intent_walk,
+    }
+    group {batter, game_year} (
+        aggregate {
+            pa = sum plate_appearance,
+            ab = sum at_bat,
+            ubb = sum walk,
+            bb = sum all_walks,
+            ibb = sum intent_walk,
+            hbp = sum hit_by_pitch,
+            h = sum hit,
+            single = sum single,
+            double = sum double,
+            triple = sum triple,
+            hr = sum home_run,
+            sf = sum sac_fly
+        }
+    )
+)
+
+let agg_stats = (
+    from batting_stats
+    derive {
+        batting_average = case [
+            ab > 0 => h / ab,
+            true => null
+        ],
+        on_base_percentage = case [
+            (ab + bb + hbp) > 0 => (h + bb + hbp) / (ab + bb + hbp + sf),
+            true => null
+        ],
+        slugging_percentage = case [
+            ab > 0 => (single + 2 * double + 3 * triple + 4 * hr) / ab,
+            true => null
+        ]
+    }
+    join side:left players (
+        batting_stats.batter == players.id
+    )
+    select {
+        batting_stats.batter,
+        game_year,
+        players.full_name,
+        batting_stats.pa,
+        batting_stats.ab,
+        batting_stats.ubb,
+        batting_stats.bb,
+        batting_stats.ibb,
+        batting_stats.hbp,
+        batting_stats.h,
+        batting_stats.single,
+        batting_stats.double,
+        batting_stats.triple,
+        batting_stats.hr,
+        batting_stats.sf,
+        avg = (batting_average | math.round 3),
+        obp = (on_base_percentage | math.round 3),
+        slg = (slugging_percentage | math.round 3),
+    }
+)
+
+let agg_stats_with_woba = (
+    agg_stats
+    join side:left weights (==game_year)
+    derive {
+        woba_num = (w_bb * ubb) + (w_hbp * hbp) + (w_single * single) + (w_double * double) + (w_triple * triple) + (w_home_run * hr),
+        woba_denom = ab + bb - ibb + sf + hbp,
+    }
+    derive {
+        woba = case [
+            woba_denom > 0 => woba_num / woba_denom,
+            true => 0
+        ]
+    }
+    select {
+        batter,
+        full_name,
+        game_year,
+        pa,
+        ab,
+        ubb,
+        bb,
+        ibb,
+        hbp,
+        h,
+        single,
+        double,
+        triple,
+        hr,
+        sf,
+        avg,
+        obp,
+        slg,
+        woba = (woba | math.round 3)
+    }
+)
+
+from agg_stats_with_woba
