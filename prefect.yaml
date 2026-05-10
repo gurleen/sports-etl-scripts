@@ -4,7 +4,7 @@ name: etl-scripts
 
 pull:
   - prefect.deployments.steps.set_working_directory:
-      directory: "{{ $ETL_REPO_ROOT }}"
+      directory: "/app"
 
 deployments:
   - name: statcast-update-recent
