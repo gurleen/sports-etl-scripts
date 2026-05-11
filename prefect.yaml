@@ -37,3 +37,12 @@ deployments:
       year: 2025
     work_pool:
       name: etl-pool
+
+  - name: refresh-materialized-views
+    description: REFRESH MATERIALIZED VIEW for the default warehouse list (see etl_scripts/materialized_views.py).
+    tags:
+      - warehouse
+    entrypoint: flows/materialized_views_flow.py:refresh_materialized_views_flow
+    parameters: {}
+    work_pool:
+      name: etl-pool
