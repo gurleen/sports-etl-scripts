@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import csv
+import math
 import os
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any, Mapping, Sequence, cast
 
-import polars as pl
+import numpy as np
+import pandas as pd
 import pybaseball as pb  # type: ignore
 import pybaseball.cache as pb_cache  # type: ignore
 from loguru import logger
-from pathlib import Path
-
+import psycopg2
+from psycopg2 import sql
+from psycopg2.extras import execute_batch
 from sqlalchemy import create_engine, text
 
 
@@ -28,6 +33,8 @@ def _load_repo_dotenv() -> None:
 _load_repo_dotenv()
 
 STATCAST_TABLE_NAME = "statcast"
+"""Primary-key columns on ``statcast``; used as the ``ON CONFLICT`` target for upserts."""
+STATCAST_CONFLICT_COLUMNS = ("game_pk", "at_bat_number", "pitch_number")
 EARLIEST_DATA_DATE = datetime(2017, 1, 1)
 _pb_cache_enabled = False
 
@@ -68,11 +75,40 @@ def get_database_url() -> str:
     return f"postgresql://{user}:{password}@{host}:{port}/{db}"
 
 
-def format_date(date: datetime) -> str:
-    return date.strftime("%Y-%m-%d")
+def format_date(d: datetime) -> str:
+    return d.strftime("%Y-%m-%d")
 
 
-def get_statcast_data(start_date: datetime, end_date: datetime) -> pl.DataFrame:
+def _sanitize_value(v: Any) -> Any:
+    """Normalize values for Postgres bindings (NaN/NA/numpy/pandas → plain Python)."""
+    if v is None:
+        return None
+    if v is pd.NA:
+        return None
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+    if isinstance(v, np.generic):
+        return v.item()
+    if isinstance(v, pd.Timestamp):
+        return v.to_pydatetime()
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, date):
+        return v
+    return v
+
+
+def _dataframe_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Materialize rows as plain dicts (no Polars / second frame)."""
+    df = df.astype(object).where(pd.notna(df), None)
+    records: list[dict[str, Any]] = []
+    for raw in df.to_dict(orient="records"):
+        rec = {str(k): _sanitize_value(v) for k, v in raw.items()}
+        records.append(rec)
+    return records
+
+
+def get_statcast_data(start_date: datetime, end_date: datetime) -> list[dict[str, Any]]:
     _ensure_pybaseball_cache()
     logger.info("Fetching Statcast data from {} to {}", start_date, end_date)
 
@@ -80,38 +116,104 @@ def get_statcast_data(start_date: datetime, end_date: datetime) -> pl.DataFrame:
     end_date_str = format_date(end_date)
 
     raw_data = pb.statcast(start_dt=start_date_str, end_dt=end_date_str)
+    drop_cols = [c for c in _DEPRECATED_COLUMNS if c in raw_data.columns]
+    df = cast(pd.DataFrame, raw_data.drop(columns=drop_cols, errors="ignore"))
+    df = cast(pd.DataFrame, df[df["game_type"].eq("R")].copy())
+    if "game_date" in df.columns:
+        parsed = pd.to_datetime(df["game_date"], errors="coerce")
+        if isinstance(parsed, pd.Series):
+            df["game_date"] = parsed.dt.date
 
-    data = (
-        pl.from_pandas(raw_data)
-        .with_columns(pl.col("game_date").str.to_date("%Y-%m-%d"))
-        .filter(pl.col("game_type").eq("R"))
-        .drop(*_DEPRECATED_COLUMNS)
-    )
+    records = _dataframe_to_records(df)
+    logger.info("Fetched {} records", len(records))
+    return records
 
-    logger.info("Fetched {} records", len(data))
-    return data
+
+def _union_columns(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    keys: set[str] = set()
+    for r in rows:
+        keys.update(r.keys())
+    return sorted(keys)
+
+
+def _build_upsert_statement(
+    table_name: str,
+    columns: Sequence[str],
+    *,
+    conflict_columns: Sequence[str] = STATCAST_CONFLICT_COLUMNS,
+) -> sql.Composed:
+    for c in conflict_columns:
+        if c not in columns:
+            raise ValueError(
+                f"Statcast upsert requires column {c!r} (must match the table primary key columns)."
+            )
+    update_cols = [c for c in columns if c not in conflict_columns]
+    fields = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+    placeholders = sql.SQL(", ").join([sql.Placeholder() for _ in columns])
+    conflict = sql.SQL(", ").join(sql.Identifier(c) for c in conflict_columns)
+    if update_cols:
+        sets = sql.SQL(", ").join(
+            sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(c), sql.Identifier(c)) for c in update_cols
+        )
+        action = sql.SQL("DO UPDATE SET {}").format(sets)
+    else:
+        action = sql.SQL("DO NOTHING")
+
+    return sql.SQL(
+        "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) {}"
+    ).format(sql.Identifier(table_name), fields, placeholders, conflict, action)
 
 
 def load_data_to_db(
-    data: pl.DataFrame,
+    data: Sequence[dict[str, Any]],
     *,
     database_url: str | None = None,
     table_name: str = STATCAST_TABLE_NAME,
+    batch_size: int = 500,
 ) -> int:
-    """Append ``data`` to ``table_name``. Returns rows written (best effort)."""
+    """Upsert Statcast rows in batches. Returns number of rows processed.
+
+    ``ON CONFLICT`` targets the table primary key
+    ``(game_pk, at_bat_number, pitch_number)`` — see ``STATCAST_CONFLICT_COLUMNS``.
+    """
+    rows = list(data)
+    if not rows:
+        logger.info("No rows to load into {}", table_name)
+        return 0
+
     url = database_url or get_database_url()
-    logger.info("Loading data into {}", table_name)
-    rows_affected = data.write_database(  # pyright: ignore[reportUnknownMemberType]
-        table_name=table_name,
-        connection=url,
-        if_table_exists="append",
-    )
-    if rows_affected is not None:
-        n = int(rows_affected)
-    else:
-        n = len(data)
-    logger.info("Rows affected: {}", n)
-    return n
+    logger.info("Upserting {} rows into {} (batch size {})", len(rows), table_name, batch_size)
+    columns = _union_columns(rows)
+
+    stmt = _build_upsert_statement(table_name, columns)
+    tuples = [tuple(row.get(c) for c in columns) for row in rows]
+
+    total = 0
+    with psycopg2.connect(url) as conn:
+        query_str = stmt.as_string(conn)
+        with conn.cursor() as cur:
+            for i in range(0, len(tuples), batch_size):
+                chunk = tuples[i : i + batch_size]
+                execute_batch(cur, query_str, chunk, page_size=len(chunk))
+                total += len(chunk)
+        conn.commit()
+
+    logger.info("Rows processed: {}", total)
+    return total
+
+
+def write_statcast_csv(rows: Sequence[dict[str, Any]], filename: str) -> None:
+    """Write Statcast dict rows to CSV (header from union of keys)."""
+    data = list(rows)
+    if not data:
+        logger.warning("No rows to write to {}", filename)
+        return
+    columns = _union_columns(data)
+    with open(filename, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(data)
+    logger.info("Data written to {}", filename)
 
 
 def statcast_table_metrics(

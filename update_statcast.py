@@ -10,6 +10,7 @@ from etl_scripts.statcast import (
     get_database_url,
     get_statcast_data,
     load_data_to_db,
+    write_statcast_csv,
 )
 
 app = typer.Typer()
@@ -49,7 +50,7 @@ def write_to_file(season: int, filename: str):
     start_date = datetime(season, 3, 1)
     end_date = datetime(season, 11, 30)
     data = get_statcast_data(start_date, end_date)
-    data.write_csv(filename)
+    write_statcast_csv(data, filename)
     logger.info("Data written to {}", filename)
 
 

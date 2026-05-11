@@ -23,7 +23,7 @@ def statcast_ingest_range_task(
     end_date: datetime,
     database_url: str,
 ) -> dict[str, Any]:
-    """Fetch and load without returning a large DataFrame as a persisted task result."""
+    """Fetch and load without persisting large row payloads as a task result."""
     log = get_run_logger()
     data = get_statcast_data(start_date, end_date)
     n = len(data)
