@@ -46,3 +46,14 @@ deployments:
     parameters: {}
     work_pool:
       name: etl-pool
+
+  - name: statcast-extra-ingest-year
+    description: Savant `/gf` gamefeed pitch rows for missing `game_pk` values (current calendar year by default).
+    tags:
+      - statcast
+    entrypoint: flows/statcast_extra_flow.py:statcast_extra_ingest_year_flow
+    parameters:
+      year: null
+      pause_sec: 0.2
+    work_pool:
+      name: etl-pool
