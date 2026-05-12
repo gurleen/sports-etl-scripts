@@ -10,6 +10,7 @@ COPY etl_scripts ./etl_scripts
 COPY models ./models
 COPY flows ./flows
 COPY update_statcast.py ./
+COPY README.md ./
 
 RUN uv sync --frozen --no-dev
 
