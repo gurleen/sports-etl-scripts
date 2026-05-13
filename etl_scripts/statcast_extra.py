@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
-from typing import Any, Literal, Sequence, get_origin
+from types import UnionType
+from typing import Any, Literal, Sequence, Union, get_args, get_origin
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import UUID
@@ -45,6 +46,20 @@ def _pg_type_for_annotation(ann: Any) -> str:
     return "TEXT"
 
 
+def _annotation_nullable(ann: Any) -> tuple[Any, bool]:
+    """Strip ``| None`` / ``Optional`` for column typing; return (inner annotation, allows_null)."""
+    origin = get_origin(ann)
+    if origin is UnionType or origin is Union:
+        args = get_args(ann)
+        non_none = [a for a in args if a is not type(None)]
+        nullable = any(a is type(None) for a in args)
+        if len(non_none) == 1:
+            return non_none[0], nullable
+        if non_none:
+            return non_none[0], nullable
+    return ann, False
+
+
 def _statcast_extra_ddl() -> str:
     """CREATE TABLE for ``statcast_extra`` derived from :class:`PitchData` columns."""
     lead = [
@@ -53,7 +68,9 @@ def _statcast_extra_ddl() -> str:
     ]
     pitch_cols: list[tuple[str, str]] = []
     for name, finfo in PitchData.model_fields.items():
-        pitch_cols.append((name, f"{_pg_type_for_annotation(finfo.annotation)} NOT NULL"))
+        base_ann, nullable = _annotation_nullable(finfo.annotation)
+        null_sql = "NULL" if nullable else "NOT NULL"
+        pitch_cols.append((name, f"{_pg_type_for_annotation(base_ann)} {null_sql}"))
     parts = [f'"{n}" {t}' for n, t in lead + pitch_cols]
     body = ",\n    ".join(parts)
     return (
