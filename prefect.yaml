@@ -12,7 +12,7 @@ deployments:
     tags:
       - statcast
     schedule:
-      cron: "0 6 * * *"
+      cron: "0 10 * * *"
       timezone: UTC
     entrypoint: flows/statcast_flow.py:statcast_update_recent
     parameters:
