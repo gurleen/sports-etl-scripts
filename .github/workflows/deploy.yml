@@ -1,0 +1,61 @@
+# Secrets:
+#   SSH_PRIVATE_KEY   — PEM private key for the deploy user (full key including headers)
+#   SSH_KNOWN_HOSTS   — Optional. One or more lines from `ssh-keyscan your.host`
+#                       (recommended). If omitted, StrictHostKeyChecking=accept-new is used.
+#
+# Variables (Repository variables):
+#   HOST              — VPS hostname or IP
+#   USER              — SSH username (e.g. ubuntu)
+#   APP_DIRECTORY     — Absolute path to the clone on the server (e.g. /home/ubuntu/etl-scripts)
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ vars.HOST }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.HOST }}
+          DEPLOY_USER: ${{ vars.USER }}
+          APP_DIRECTORY: ${{ vars.APP_DIRECTORY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "Missing secret SSH_PRIVATE_KEY" >&2
+            exit 1
+          fi
+          if [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_USER:-}" ] || [ -z "${APP_DIRECTORY:-}" ]; then
+            echo "Set repository variables HOST, USER, and APP_DIRECTORY" >&2
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+            chmod 644 ~/.ssh/known_hosts
+            HOST_KEY_OPTS="-o StrictHostKeyChecking=yes"
+          else
+            HOST_KEY_OPTS="-o StrictHostKeyChecking=accept-new"
+          fi
+
+          ssh -i ~/.ssh/deploy_key \
+            -o IdentitiesOnly=yes \
+            $HOST_KEY_OPTS \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "set -euo pipefail && cd \"${APP_DIRECTORY}\" && git pull && docker compose up -d --build"
