@@ -1,7 +1,7 @@
 from typing import List, Literal, Optional, TypeAlias
 from uuid import UUID
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 HalfInning: TypeAlias = Literal["top", "bottom"]
 Handedness: TypeAlias = Literal["R", "L"]
@@ -154,8 +154,25 @@ class PitchData(BaseModel):
         return out
 
 
+def _filter_valid_pitches(items: object) -> object:
+    if not isinstance(items, list):
+        return items
+    parsed: list[PitchData] = []
+    for item in items:
+        try:
+            parsed.append(PitchData.model_validate(item))
+        except ValidationError:
+            continue
+    return parsed
+
+
 class SavantGamefeed(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     team_home: List[PitchData]
     team_away: List[PitchData]
+
+    @field_validator("team_home", "team_away", mode="before")
+    @classmethod
+    def _only_parsable_pitch_rows(cls, value: object) -> object:
+        return _filter_valid_pitches(value)
