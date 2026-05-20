@@ -112,7 +112,7 @@ Ad-hoc CLI runs remain available: `uv run python update_statcast.py update-recen
 
 Each Statcast flow records a **Markdown artifact** `statcast-run-summary` (date range, rows fetched/written, table row count and `max(game_date)` before vs after). Open a flow run in the UI and check **Artifacts**.
 
-The **`statcast-extra-ingest-year`** deployment loads missing Savant data **one `game_date` at a time** (all games on that date before the next). Parameter **`days`** caps how many distinct dates to process per run (earliest missing first); omit it to process every missing date in **`year`**. It updates a **progress artifact** (`statcast-extra-ingest`, 0–100%) every 25 games. **`statcast-update-recent`** passes the same `days` value into this flow so a recent ingest does not pull a full season of gamefeeds in one run.
+The **`statcast-extra-ingest-year`** deployment loads missing Savant data **one `game_date` at a time** (all games on that date before the next). Use **`start_date`** / **`end_date`** (inclusive `game_date` window) to align with a Statcast ingest; **`statcast-update-recent`** passes the same window as its ingest range. Without a window, **`days`** limits to the N **most recent** missing dates; omit both window and **`days`** to process every missing date in **`year`** (oldest first). Progress artifact: `statcast-extra-ingest`.
 
 ## Failure notifications (recommended)
 

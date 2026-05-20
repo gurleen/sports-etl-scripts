@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from prefect import flow, get_run_logger, task
@@ -12,11 +12,21 @@ from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 from etl_scripts.statcast_extra import sync_missing_gamefeeds_for_year
 
 
+def _coerce_game_date(value: date | str | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
 @task
 def statcast_extra_sync_task(
     year: int | None,
     database_url: str,
     days: int | None = None,
+    start_date: date | str | None = None,
+    end_date: date | str | None = None,
     pause_sec: float = 0.2,
 ) -> dict[str, Any]:
     log = get_run_logger()
@@ -35,6 +45,8 @@ def statcast_extra_sync_task(
     return sync_missing_gamefeeds_for_year(
         year,
         days=days,
+        start_date=_coerce_game_date(start_date),
+        end_date=_coerce_game_date(end_date),
         database_url=database_url,
         pause_sec=pause_sec,
         on_progress=on_progress,
@@ -51,7 +63,8 @@ def _artifact_markdown(summary: dict[str, Any]) -> str:
             "# Statcast extra (Savant `/gf`)",
             "",
             f"- Year: **{summary['year']}**",
-            f"- Days limit: **{summary.get('days')}** (earliest missing dates first)",
+            f"- Date window: **{summary.get('start_date')}** → **{summary.get('end_date')}**",
+            f"- Days limit (no window): **{summary.get('days')}** (most recent missing dates)",
             f"- Dates processed: **{summary.get('days_targeted', 0)}**",
             f"- Games targeted (no prior `statcast_extra` rows): **{summary['games_targeted']}**",
             f"- Games loaded: **{summary['games_loaded']}**",
@@ -68,18 +81,27 @@ def _artifact_markdown(summary: dict[str, Any]) -> str:
 def statcast_extra_ingest_year_flow(
     year: int | None = None,
     days: int | None = None,
+    start_date: date | str | None = None,
+    end_date: date | str | None = None,
     pause_sec: float = 0.2,
 ) -> dict[str, Any]:
     """
     Fetch Savant gamefeed JSON for missing ``game_pk`` values and load ``statcast_extra``.
 
-    Processes one ``game_date`` at a time. ``days`` limits how many distinct dates to load per run
-    (``None`` = all missing dates in ``year``).
+    Processes one ``game_date`` at a time. Use ``start_date`` / ``end_date`` to match a Statcast ingest
+    window; otherwise ``days`` limits to the N most recent missing dates in ``year``.
     """
     log = get_run_logger()
     database_url = resolve_database_url_for_flow()
     y = year if year is not None else datetime.now().year
-    summary = statcast_extra_sync_task(y, database_url, days=days, pause_sec=pause_sec)
+    summary = statcast_extra_sync_task(
+        y,
+        database_url,
+        days=days,
+        start_date=start_date,
+        end_date=end_date,
+        pause_sec=pause_sec,
+    )
     create_markdown_artifact(
         key="statcast-extra-run-summary",
         markdown=_artifact_markdown(summary),

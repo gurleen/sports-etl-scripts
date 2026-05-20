@@ -136,27 +136,58 @@ def fetch_and_parse_gamefeed(game_pk: int) -> SavantGamefeed:
     )
 
 
+def _game_date_range_sql(
+    start_date: date | None,
+    end_date: date | None,
+    params: list[Any],
+) -> str:
+    clauses: list[str] = []
+    if start_date is not None:
+        clauses.append("s.game_date::date >= %s")
+        params.append(start_date)
+    if end_date is not None:
+        clauses.append("s.game_date::date <= %s")
+        params.append(end_date)
+    return (" AND " + " AND ".join(clauses)) if clauses else ""
+
+
 def list_game_dates_missing_extra(
     year: int,
     *,
+    start_date: date | None = None,
+    end_date: date | None = None,
     database_url: str | None = None,
     statcast_table: str = STATCAST_TABLE_NAME,
     limit_days: int | None = None,
 ) -> list[date]:
-    """Distinct ``game_date`` values in ``year`` with at least one ``game_pk`` missing ``statcast_extra``."""
+    """
+    Distinct ``game_date`` values in ``year`` with at least one ``game_pk`` missing ``statcast_extra``.
+
+    When ``start_date`` / ``end_date`` are set, only dates in that inclusive window are considered.
+    Otherwise ``limit_days`` selects the N most recent missing dates (``ORDER BY`` desc).
+    With no range and no limit, returns all missing dates oldest-first.
+    """
     url = database_url or get_database_url()
+    params: list[Any] = [year]
+    range_sql = _game_date_range_sql(start_date, end_date, params)
+    if start_date is not None or end_date is not None:
+        order = "ASC"
+    elif limit_days is not None:
+        order = "DESC"
+    else:
+        order = "ASC"
     q = f"""
     SELECT DISTINCT s.game_date::date AS d
     FROM {statcast_table} s
     WHERE EXTRACT(YEAR FROM s.game_date)::int = %s
       AND s.game_type = 'R'
+      {range_sql}
       AND NOT EXISTS (
           SELECT 1 FROM {STATCAST_EXTRA_TABLE} e WHERE e.game_pk = s.game_pk
       )
-    ORDER BY 1
+    ORDER BY 1 {order}
     """
-    params: list[Any] = [year]
-    if limit_days is not None:
+    if limit_days is not None and start_date is None and end_date is None:
         q += " LIMIT %s"
         params.append(limit_days)
     with psycopg2.connect(url) as conn:
@@ -276,6 +307,8 @@ def sync_missing_gamefeeds_for_year(
     year: int | None = None,
     *,
     days: int | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     database_url: str | None = None,
     pause_sec: float = 0,
     on_progress: Callable[[int, int, int, int], None] | None = None,
@@ -285,18 +318,28 @@ def sync_missing_gamefeeds_for_year(
     Load Savant ``/gf`` data for ``game_pk`` values missing from ``statcast_extra``.
 
     Work is done **one ``game_date`` at a time** (all games that day are loaded before the next date).
-    ``days`` caps how many distinct dates to process (earliest missing dates first); ``None`` means all
-    missing dates in ``year``.
+    ``start_date`` / ``end_date`` restrict to an inclusive ``game_date`` window (used with Statcast ingest).
+    If no window is set, ``days`` caps how many **most recent** missing dates to process; ``None`` means all
+    missing dates in ``year`` (oldest first).
     """
     y = year if year is not None else datetime.now().year
     url = database_url or get_database_url()
     ensure_statcast_extra_table(database_url=url)
-    game_dates = list_game_dates_missing_extra(y, database_url=url, limit_days=days)
+    use_limit = days if (start_date is None and end_date is None) else None
+    game_dates = list_game_dates_missing_extra(
+        y,
+        start_date=start_date,
+        end_date=end_date,
+        limit_days=use_limit,
+        database_url=url,
+    )
     total_games = count_game_pks_missing_extra(y, game_dates, database_url=url)
     logger.info(
-        "statcast_extra sync year={} days={}: {} dates, {} game_pk values",
+        "statcast_extra sync year={} days={} start={} end={}: {} dates, {} game_pk values",
         y,
         days,
+        start_date,
+        end_date,
         len(game_dates),
         total_games,
     )
@@ -304,6 +347,8 @@ def sync_missing_gamefeeds_for_year(
         return {
             "year": y,
             "days": days,
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
             "days_targeted": 0,
             "dates_processed": [],
             "games_targeted": 0,
@@ -357,6 +402,8 @@ def sync_missing_gamefeeds_for_year(
     return {
         "year": y,
         "days": days,
+        "start_date": start_date.isoformat() if start_date else None,
+        "end_date": end_date.isoformat() if end_date else None,
         "days_targeted": len(game_dates),
         "dates_processed": [d.isoformat() for d in game_dates],
         "games_targeted": total_games,

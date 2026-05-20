@@ -55,6 +55,8 @@ deployments:
     parameters:
       year: null
       days: null
+      start_date: null
+      end_date: null
       pause_sec: 0.2
     work_pool:
       name: etl-pool

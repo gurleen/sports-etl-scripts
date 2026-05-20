@@ -78,7 +78,11 @@ def statcast_update_recent(days: int = 1) -> dict[str, Any]:
         key="statcast-run-summary",
         markdown=_artifact_markdown("update_recent", before, after, ingest),
     )
-    statcast_extra = statcast_extra_ingest_year_flow(year=today.year, days=days)
+    statcast_extra = statcast_extra_ingest_year_flow(
+        year=today.year,
+        start_date=start.date(),
+        end_date=today.date(),
+    )
     materialized_views = refresh_materialized_views_flow()
     log.info(
         "Run summary: before=%s after=%s ingest=%s statcast_extra=%s materialized_views=%s",
