@@ -1,7 +1,15 @@
-from typing import List, Literal, Optional, TypeAlias
+from typing import Annotated, List, Literal, Optional, TypeAlias
 from uuid import UUID
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainValidator,
+    ValidationError,
+    model_validator,
+)
 
 HalfInning: TypeAlias = Literal["top", "bottom"]
 Handedness: TypeAlias = Literal["R", "L"]
@@ -154,11 +162,15 @@ class PitchData(BaseModel):
         return out
 
 
-def _filter_valid_pitches(items: object) -> object:
+def parse_pitch_rows(items: object) -> list[PitchData]:
+    """Keep only gamefeed rows that satisfy :class:`PitchData` (e.g. skip ``no_pitch`` stubs)."""
     if not isinstance(items, list):
-        return items
+        raise TypeError(f"expected list, got {type(items).__name__}")
     parsed: list[PitchData] = []
     for item in items:
+        if isinstance(item, PitchData):
+            parsed.append(item)
+            continue
         try:
             parsed.append(PitchData.model_validate(item))
         except ValidationError:
@@ -166,13 +178,11 @@ def _filter_valid_pitches(items: object) -> object:
     return parsed
 
 
+PitchRowList = Annotated[list[PitchData], PlainValidator(parse_pitch_rows)]
+
+
 class SavantGamefeed(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    team_home: List[PitchData]
-    team_away: List[PitchData]
-
-    @field_validator("team_home", "team_away", mode="before")
-    @classmethod
-    def _only_parsable_pitch_rows(cls, value: object) -> object:
-        return _filter_valid_pitches(value)
+    team_home: PitchRowList
+    team_away: PitchRowList

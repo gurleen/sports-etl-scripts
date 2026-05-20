@@ -18,7 +18,7 @@ from psycopg2 import sql
 from psycopg2.extras import execute_batch
 
 from etl_scripts.statcast import STATCAST_TABLE_NAME, get_database_url
-from models.savant_gamefeed import PitchData, SavantGamefeed
+from models.savant_gamefeed import PitchData, SavantGamefeed, parse_pitch_rows
 
 STATCAST_EXTRA_TABLE = "statcast_extra"
 GAMEFEED_URL = "https://baseballsavant.mlb.com/gf"
@@ -113,7 +113,9 @@ def fetch_and_parse_gamefeed(game_pk: int) -> SavantGamefeed:
         away = data["team_away"]
     except KeyError as e:
         raise ValueError(f"game_pk={game_pk}: missing team arrays in gamefeed response") from e
-    return SavantGamefeed.model_validate({"team_home": home, "team_away": away})
+    return SavantGamefeed.model_validate(
+        {"team_home": parse_pitch_rows(home), "team_away": parse_pitch_rows(away)}
+    )
 
 
 def list_game_pks_missing_extra(
