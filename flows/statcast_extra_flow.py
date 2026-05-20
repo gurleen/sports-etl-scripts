@@ -16,6 +16,7 @@ from etl_scripts.statcast_extra import sync_missing_gamefeeds_for_year
 def statcast_extra_sync_task(
     year: int | None,
     database_url: str,
+    days: int | None = None,
     pause_sec: float = 0.2,
 ) -> dict[str, Any]:
     log = get_run_logger()
@@ -33,6 +34,7 @@ def statcast_extra_sync_task(
 
     return sync_missing_gamefeeds_for_year(
         year,
+        days=days,
         database_url=database_url,
         pause_sec=pause_sec,
         on_progress=on_progress,
@@ -49,6 +51,8 @@ def _artifact_markdown(summary: dict[str, Any]) -> str:
             "# Statcast extra (Savant `/gf`)",
             "",
             f"- Year: **{summary['year']}**",
+            f"- Days limit: **{summary.get('days')}** (earliest missing dates first)",
+            f"- Dates processed: **{summary.get('days_targeted', 0)}**",
             f"- Games targeted (no prior `statcast_extra` rows): **{summary['games_targeted']}**",
             f"- Games loaded: **{summary['games_loaded']}**",
             f"- Pitch rows written: **{summary['rows_written']}**",
@@ -63,13 +67,19 @@ def _artifact_markdown(summary: dict[str, Any]) -> str:
 @flow(name="statcast-extra-ingest-year", log_prints=True)
 def statcast_extra_ingest_year_flow(
     year: int | None = None,
+    days: int | None = None,
     pause_sec: float = 0.2,
 ) -> dict[str, Any]:
-    """Fetch Savant gamefeed JSON for missing ``game_pk`` values and load ``statcast_extra``."""
+    """
+    Fetch Savant gamefeed JSON for missing ``game_pk`` values and load ``statcast_extra``.
+
+    Processes one ``game_date`` at a time. ``days`` limits how many distinct dates to load per run
+    (``None`` = all missing dates in ``year``).
+    """
     log = get_run_logger()
     database_url = resolve_database_url_for_flow()
     y = year if year is not None else datetime.now().year
-    summary = statcast_extra_sync_task(y, database_url, pause_sec=pause_sec)
+    summary = statcast_extra_sync_task(y, database_url, days=days, pause_sec=pause_sec)
     create_markdown_artifact(
         key="statcast-extra-run-summary",
         markdown=_artifact_markdown(summary),

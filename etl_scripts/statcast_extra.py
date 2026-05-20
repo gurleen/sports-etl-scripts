@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
+from datetime import date, datetime
 from types import UnionType
 from collections.abc import Callable
 from typing import Any, Literal, Sequence, Union, get_args, get_origin
@@ -136,9 +136,40 @@ def fetch_and_parse_gamefeed(game_pk: int) -> SavantGamefeed:
     )
 
 
+def list_game_dates_missing_extra(
+    year: int,
+    *,
+    database_url: str | None = None,
+    statcast_table: str = STATCAST_TABLE_NAME,
+    limit_days: int | None = None,
+) -> list[date]:
+    """Distinct ``game_date`` values in ``year`` with at least one ``game_pk`` missing ``statcast_extra``."""
+    url = database_url or get_database_url()
+    q = f"""
+    SELECT DISTINCT s.game_date::date AS d
+    FROM {statcast_table} s
+    WHERE EXTRACT(YEAR FROM s.game_date)::int = %s
+      AND s.game_type = 'R'
+      AND NOT EXISTS (
+          SELECT 1 FROM {STATCAST_EXTRA_TABLE} e WHERE e.game_pk = s.game_pk
+      )
+    ORDER BY 1
+    """
+    params: list[Any] = [year]
+    if limit_days is not None:
+        q += " LIMIT %s"
+        params.append(limit_days)
+    with psycopg2.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(q, params)
+            rows = cur.fetchall()
+    return [r[0] for r in rows]
+
+
 def list_game_pks_missing_extra(
     year: int,
     *,
+    game_date: date | None = None,
     database_url: str | None = None,
     statcast_table: str = STATCAST_TABLE_NAME,
 ) -> list[int]:
@@ -152,13 +183,45 @@ def list_game_pks_missing_extra(
       AND NOT EXISTS (
           SELECT 1 FROM {STATCAST_EXTRA_TABLE} e WHERE e.game_pk = s.game_pk
       )
-    ORDER BY 1
+    """
+    params: list[Any] = [year]
+    if game_date is not None:
+        q += " AND s.game_date::date = %s"
+        params.append(game_date)
+    q += " ORDER BY 1"
+    with psycopg2.connect(url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(q, params)
+            rows = cur.fetchall()
+    return [int(r[0]) for r in rows]
+
+
+def count_game_pks_missing_extra(
+    year: int,
+    game_dates: Sequence[date],
+    *,
+    database_url: str | None = None,
+    statcast_table: str = STATCAST_TABLE_NAME,
+) -> int:
+    """Count distinct ``game_pk`` missing extras on the given ``game_dates``."""
+    if not game_dates:
+        return 0
+    url = database_url or get_database_url()
+    q = f"""
+    SELECT COUNT(DISTINCT s.game_pk)
+    FROM {statcast_table} s
+    WHERE EXTRACT(YEAR FROM s.game_date)::int = %s
+      AND s.game_type = 'R'
+      AND s.game_date::date = ANY(%s)
+      AND NOT EXISTS (
+          SELECT 1 FROM {STATCAST_EXTRA_TABLE} e WHERE e.game_pk = s.game_pk
+      )
     """
     with psycopg2.connect(url) as conn:
         with conn.cursor() as cur:
-            cur.execute(q, (year,))
-            rows = cur.fetchall()
-    return [int(r[0]) for r in rows]
+            cur.execute(q, (year, list(game_dates)))
+            row = cur.fetchone()
+    return int(row[0]) if row else 0
 
 
 def _rows_for_game(game_pk: int, feed: SavantGamefeed) -> list[dict[str, Any]]:
@@ -212,57 +275,91 @@ def replace_game_extra_rows(
 def sync_missing_gamefeeds_for_year(
     year: int | None = None,
     *,
+    days: int | None = None,
     database_url: str | None = None,
     pause_sec: float = 0,
     on_progress: Callable[[int, int, int, int], None] | None = None,
     progress_every: int = 25,
 ) -> dict[str, Any]:
     """
-    For each ``game_pk`` in ``statcast`` for ``year`` (regular season) that has no ``statcast_extra`` rows yet,
-    fetch Savant ``/gf`` JSON and load all pitch rows.
+    Load Savant ``/gf`` data for ``game_pk`` values missing from ``statcast_extra``.
+
+    Work is done **one ``game_date`` at a time** (all games that day are loaded before the next date).
+    ``days`` caps how many distinct dates to process (earliest missing dates first); ``None`` means all
+    missing dates in ``year``.
     """
     y = year if year is not None else datetime.now().year
     url = database_url or get_database_url()
     ensure_statcast_extra_table(database_url=url)
-    game_pks = list_game_pks_missing_extra(y, database_url=url)
+    game_dates = list_game_dates_missing_extra(y, database_url=url, limit_days=days)
+    total_games = count_game_pks_missing_extra(y, game_dates, database_url=url)
     logger.info(
-        "statcast_extra sync year={}: {} game_pk values without extra data",
+        "statcast_extra sync year={} days={}: {} dates, {} game_pk values",
         y,
-        len(game_pks),
+        days,
+        len(game_dates),
+        total_games,
     )
+    if not game_dates:
+        return {
+            "year": y,
+            "days": days,
+            "days_targeted": 0,
+            "dates_processed": [],
+            "games_targeted": 0,
+            "games_loaded": 0,
+            "rows_written": 0,
+            "games_failed": 0,
+            "failures": [],
+        }
+
     ok = 0
     failed: list[tuple[int, str]] = []
     rows_written = 0
-    total = len(game_pks)
+    games_done = 0
     if on_progress is not None:
-        on_progress(0, total, 0, 0)
-    for i, gpk in enumerate(game_pks):
-        try:
-            feed = fetch_and_parse_gamefeed(gpk)
-            rows = _rows_for_game(gpk, feed)
-            n = replace_game_extra_rows(gpk, rows, database_url=url)
-            rows_written += n
-            ok += 1
-        except ValidationError as e:
-            msg = _summarize_exception(e)
-            logger.error("game_pk={}: gamefeed validation failed: {}", gpk, msg)
-            failed.append((gpk, msg))
-        except (HTTPError, URLError, OSError, ValueError, TypeError) as e:
-            logger.exception("game_pk={}: failed to fetch or load gamefeed", gpk)
-            failed.append((gpk, _summarize_exception(e)))
-        done = i + 1
-        if on_progress is not None and (
-            done == total or (progress_every > 0 and done % progress_every == 0)
-        ):
-            on_progress(done, total, ok, len(failed))
-        elif on_progress is None and progress_every > 0 and done % progress_every == 0:
-            logger.info("statcast_extra progress: {}/{} games", done, total)
-        if pause_sec > 0 and i + 1 < total:
-            time.sleep(pause_sec)
+        on_progress(0, total_games, 0, 0)
+
+    for day_idx, game_date in enumerate(game_dates):
+        game_pks = list_game_pks_missing_extra(y, game_date=game_date, database_url=url)
+        logger.info(
+            "statcast_extra date {} ({}/{}): {} games",
+            game_date,
+            day_idx + 1,
+            len(game_dates),
+            len(game_pks),
+        )
+        for i, gpk in enumerate(game_pks):
+            try:
+                feed = fetch_and_parse_gamefeed(gpk)
+                rows = _rows_for_game(gpk, feed)
+                n = replace_game_extra_rows(gpk, rows, database_url=url)
+                rows_written += n
+                ok += 1
+            except ValidationError as e:
+                msg = _summarize_exception(e)
+                logger.error("game_pk={}: gamefeed validation failed: {}", gpk, msg)
+                failed.append((gpk, msg))
+            except (HTTPError, URLError, OSError, ValueError, TypeError) as e:
+                logger.exception("game_pk={}: failed to fetch or load gamefeed", gpk)
+                failed.append((gpk, _summarize_exception(e)))
+            games_done += 1
+            if on_progress is not None and (
+                games_done == total_games
+                or (progress_every > 0 and games_done % progress_every == 0)
+            ):
+                on_progress(games_done, total_games, ok, len(failed))
+            elif on_progress is None and progress_every > 0 and games_done % progress_every == 0:
+                logger.info("statcast_extra progress: {}/{} games", games_done, total_games)
+            if pause_sec > 0 and (i + 1 < len(game_pks) or day_idx + 1 < len(game_dates)):
+                time.sleep(pause_sec)
 
     return {
         "year": y,
-        "games_targeted": len(game_pks),
+        "days": days,
+        "days_targeted": len(game_dates),
+        "dates_processed": [d.isoformat() for d in game_dates],
+        "games_targeted": total_games,
         "games_loaded": ok,
         "rows_written": rows_written,
         "games_failed": len(failed),
