@@ -29,6 +29,23 @@ SAVANT_REQUEST_USER_AGENT = (
 REQUEST_TIMEOUT_SEC = 60
 
 
+def _summarize_exception(exc: BaseException, *, max_details: int = 3) -> str:
+    """Short message for logs and run summaries (avoids multi-page pydantic output)."""
+    if isinstance(exc, ValidationError):
+        errs = exc.errors()
+        n = len(errs)
+        snippets: list[str] = []
+        for err in errs[:max_details]:
+            loc = ".".join(str(part) for part in err.get("loc", ()))
+            msg = err.get("msg", "invalid")
+            snippets.append(f"{loc} {msg}" if loc else msg)
+        joined = "; ".join(snippets)
+        if n > max_details:
+            joined = f"{joined} (+{n - max_details} more)"
+        return f"{n} validation error(s): {joined}"
+    return str(exc)
+
+
 def _pg_type_for_annotation(ann: Any) -> str:
     if ann is int:
         return "INTEGER"
@@ -222,9 +239,13 @@ def sync_missing_gamefeeds_for_year(
             ok += 1
             if (i + 1) % 25 == 0:
                 logger.info("statcast_extra progress: {}/{} games", i + 1, len(game_pks))
-        except (HTTPError, URLError, OSError, ValueError, TypeError, ValidationError) as e:
+        except ValidationError as e:
+            msg = _summarize_exception(e)
+            logger.error("game_pk={}: gamefeed validation failed: {}", gpk, msg)
+            failed.append((gpk, msg))
+        except (HTTPError, URLError, OSError, ValueError, TypeError) as e:
             logger.exception("game_pk={}: failed to fetch or load gamefeed", gpk)
-            failed.append((gpk, str(e)))
+            failed.append((gpk, _summarize_exception(e)))
         if pause_sec > 0 and i + 1 < len(game_pks):
             time.sleep(pause_sec)
 
