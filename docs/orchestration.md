@@ -112,6 +112,8 @@ Ad-hoc CLI runs remain available: `uv run python update_statcast.py update-recen
 
 Each Statcast flow records a **Markdown artifact** `statcast-run-summary` (date range, rows fetched/written, table row count and `max(game_date)` before vs after). Open a flow run in the UI and check **Artifacts**.
 
+The **`statcast-extra-ingest-year`** deployment updates a **progress artifact** (`statcast-extra-ingest`, 0–100%) every 25 games and writes the same counts to the flow run **Logs**. Open the run → **Artifacts** for the bar, or **Logs** for `statcast_extra progress: …` lines.
+
 ## Failure notifications (recommended)
 
 Prefect OSS supports **Automations** in the UI (see [Automations](https://docs.prefect.io/latest/concepts/automations/)):

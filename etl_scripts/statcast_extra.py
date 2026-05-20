@@ -6,6 +6,7 @@ import json
 import time
 from datetime import datetime
 from types import UnionType
+from collections.abc import Callable
 from typing import Any, Literal, Sequence, Union, get_args, get_origin
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -212,7 +213,9 @@ def sync_missing_gamefeeds_for_year(
     year: int | None = None,
     *,
     database_url: str | None = None,
-    pause_sec: float = 0.2,
+    pause_sec: float = 0,
+    on_progress: Callable[[int, int, int, int], None] | None = None,
+    progress_every: int = 25,
 ) -> dict[str, Any]:
     """
     For each ``game_pk`` in ``statcast`` for ``year`` (regular season) that has no ``statcast_extra`` rows yet,
@@ -230,6 +233,9 @@ def sync_missing_gamefeeds_for_year(
     ok = 0
     failed: list[tuple[int, str]] = []
     rows_written = 0
+    total = len(game_pks)
+    if on_progress is not None:
+        on_progress(0, total, 0, 0)
     for i, gpk in enumerate(game_pks):
         try:
             feed = fetch_and_parse_gamefeed(gpk)
@@ -237,8 +243,6 @@ def sync_missing_gamefeeds_for_year(
             n = replace_game_extra_rows(gpk, rows, database_url=url)
             rows_written += n
             ok += 1
-            if (i + 1) % 25 == 0:
-                logger.info("statcast_extra progress: {}/{} games", i + 1, len(game_pks))
         except ValidationError as e:
             msg = _summarize_exception(e)
             logger.error("game_pk={}: gamefeed validation failed: {}", gpk, msg)
@@ -246,7 +250,14 @@ def sync_missing_gamefeeds_for_year(
         except (HTTPError, URLError, OSError, ValueError, TypeError) as e:
             logger.exception("game_pk={}: failed to fetch or load gamefeed", gpk)
             failed.append((gpk, _summarize_exception(e)))
-        if pause_sec > 0 and i + 1 < len(game_pks):
+        done = i + 1
+        if on_progress is not None and (
+            done == total or (progress_every > 0 and done % progress_every == 0)
+        ):
+            on_progress(done, total, ok, len(failed))
+        elif on_progress is None and progress_every > 0 and done % progress_every == 0:
+            logger.info("statcast_extra progress: {}/{} games", done, total)
+        if pause_sec > 0 and i + 1 < total:
             time.sleep(pause_sec)
 
     return {

@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from prefect import flow, get_run_logger, task
-from prefect.artifacts import create_markdown_artifact
+from prefect.artifacts import create_markdown_artifact, create_progress_artifact, update_progress_artifact
 
 from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 from etl_scripts.statcast_extra import sync_missing_gamefeeds_for_year
@@ -18,7 +18,25 @@ def statcast_extra_sync_task(
     database_url: str,
     pause_sec: float = 0.2,
 ) -> dict[str, Any]:
-    return sync_missing_gamefeeds_for_year(year, database_url=database_url, pause_sec=pause_sec)
+    log = get_run_logger()
+    progress_id = create_progress_artifact(
+        0,
+        key="statcast-extra-ingest",
+        description="Starting statcast_extra ingest…",
+    )
+
+    def on_progress(done: int, total: int, loaded: int, failed: int) -> None:
+        pct = (100.0 * done / total) if total else 100.0
+        desc = f"{done}/{total} games ({loaded} loaded, {failed} failed)"
+        update_progress_artifact(progress_id, pct, description=desc)
+        log.info("statcast_extra progress: %s", desc)
+
+    return sync_missing_gamefeeds_for_year(
+        year,
+        database_url=database_url,
+        pause_sec=pause_sec,
+        on_progress=on_progress,
+    )
 
 
 def _artifact_markdown(summary: dict[str, Any]) -> str:
