@@ -60,3 +60,22 @@ deployments:
       pause_sec: 0.2
     work_pool:
       name: etl-pool
+
+  - name: retrosheet-load-all
+    description: Download Retrosheet master parsed CSV zip and full-refresh all seven warehouse tables.
+    tags:
+      - retrosheet
+    entrypoint: flows/retrosheet_flow.py:retrosheet_load_all_flow
+    parameters: {}
+    work_pool:
+      name: etl-pool
+
+  - name: retrosheet-load-table
+    description: Load one Retrosheet master CSV from the official zip (e.g. gameinfo.csv).
+    tags:
+      - retrosheet
+    entrypoint: flows/retrosheet_flow.py:retrosheet_load_table_flow
+    parameters:
+      csv_file: gameinfo.csv
+    work_pool:
+      name: etl-pool
