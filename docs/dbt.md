@@ -45,15 +45,9 @@ uv run dbt compile --select current_season_batting_stats
 uv run dbt show --select current_season_batting_stats --limit 20
 ```
 
-## Prefect integration (migration)
+## Prefect integration
 
-Today, `statcast_update_recent` calls `refresh_materialized_views_flow`, which runs `REFRESH MATERIALIZED VIEW` for names in `DEFAULT_MATERIALIZED_VIEWS`.
-
-After cutover:
-
-1. Run `dbt build --selector post_statcast_ingest` from a Prefect task (or a small `@flow` that shells out to `uv run dbt ...`) instead of `refresh_materialized_views`.
-2. Drop the manually created MV once dbt owns it (`dbt run` creates the dbt-managed materialized view).
-3. Remove or narrow `etl_scripts/materialized_views.py` when no non-dbt MVs remain.
+After Statcast ingest, run `dbt build --selector post_statcast_ingest` (manually, cron, or a future Prefect task). Statcast flows no longer call `refresh_materialized_views`; dbt owns mart refresh. Drop legacy warehouse MVs once dbt manages them, then remove `etl_scripts/materialized_views.py` if unused.
 
 `query.prql` remains useful for parameterized API queries (`$1`–`$7` filters). Shared logic should live in dbt; PRQL can target `{{ ref('current_season_batting_stats') }}` via compiled tables or thin filter layers.
 

@@ -10,7 +10,6 @@ from prefect.artifacts import create_markdown_artifact
 
 from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 from etl_scripts.statcast import EARLIEST_DATA_DATE, get_statcast_data, load_data_to_db, statcast_table_metrics
-from flows.materialized_views_flow import refresh_materialized_views_flow
 from flows.statcast_extra_flow import statcast_extra_ingest_year_flow
 
 
@@ -95,21 +94,18 @@ def statcast_update_recent(days: int = 1) -> dict[str, Any]:
         start_date=start.date(),
         end_date=today.date(),
     )
-    materialized_views = refresh_materialized_views_flow()
     log.info(
-        "Run summary: before=%s after=%s ingest=%s statcast_extra=%s materialized_views=%s",
+        "Run summary: before=%s after=%s ingest=%s statcast_extra=%s",
         before,
         after,
         ingest,
         statcast_extra,
-        materialized_views,
     )
     return {
         "before": before,
         "after": after,
         "ingest": ingest,
         "statcast_extra": statcast_extra,
-        "materialized_views": materialized_views,
     }
 
 
@@ -132,15 +128,13 @@ def statcast_update_date(game_date: date | str) -> dict[str, Any]:
         start_date=d,
         end_date=d,
     )
-    materialized_views = refresh_materialized_views_flow()
     log.info(
-        "Run summary: game_date=%s before=%s after=%s ingest=%s statcast_extra=%s materialized_views=%s",
+        "Run summary: game_date=%s before=%s after=%s ingest=%s statcast_extra=%s",
         d.isoformat(),
         before,
         after,
         ingest,
         statcast_extra,
-        materialized_views,
     )
     return {
         "game_date": d.isoformat(),
@@ -148,7 +142,6 @@ def statcast_update_date(game_date: date | str) -> dict[str, Any]:
         "after": after,
         "ingest": ingest,
         "statcast_extra": statcast_extra,
-        "materialized_views": materialized_views,
     }
 
 
