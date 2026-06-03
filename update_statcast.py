@@ -1,6 +1,6 @@
 """Typer CLI for ad-hoc Statcast updates (scheduled runs use Prefect flows)."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import typer
 from loguru import logger
@@ -33,6 +33,18 @@ def season(year: int):
     data = get_statcast_data(start_date, end_date)
     load_data_to_db(data, database_url=url)
     logger.info("Season {} update completed", year)
+
+
+@app.command()
+def update_date(
+    game_date: str = typer.Argument(..., help="Calendar date (YYYY-MM-DD) to fetch and upsert."),
+):
+    d = date.fromisoformat(game_date[:10])
+    day = datetime.combine(d, time.min)
+    url = get_database_url()
+    data = get_statcast_data(day, day)
+    load_data_to_db(data, database_url=url)
+    logger.info("Date {} update completed", d.isoformat())
 
 
 @app.command()

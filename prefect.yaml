@@ -38,6 +38,16 @@ deployments:
     work_pool:
       name: etl-pool
 
+  - name: statcast-update-date
+    description: Statcast ingest for one calendar day (`game_date`, ISO `YYYY-MM-DD`). Manual runs only.
+    tags:
+      - statcast
+    entrypoint: flows/statcast_flow.py:statcast_update_date
+    parameters:
+      game_date: "2025-06-01"
+    work_pool:
+      name: etl-pool
+
   - name: refresh-materialized-views
     description: REFRESH MATERIALIZED VIEW for the default warehouse list (see etl_scripts/materialized_views.py).
     tags:

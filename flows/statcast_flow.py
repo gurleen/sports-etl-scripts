@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from prefect import flow, get_run_logger, task
@@ -12,6 +12,18 @@ from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 from etl_scripts.statcast import EARLIEST_DATA_DATE, get_statcast_data, load_data_to_db, statcast_table_metrics
 from flows.materialized_views_flow import refresh_materialized_views_flow
 from flows.statcast_extra_flow import statcast_extra_ingest_year_flow
+
+
+def _coerce_game_date(value: date | str) -> date:
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def _datetime_range_for_game_date(game_date: date | str) -> tuple[datetime, datetime]:
+    d = _coerce_game_date(game_date)
+    day = datetime.combine(d, time.min)
+    return day, day
 
 
 @task
@@ -93,6 +105,45 @@ def statcast_update_recent(days: int = 1) -> dict[str, Any]:
         materialized_views,
     )
     return {
+        "before": before,
+        "after": after,
+        "ingest": ingest,
+        "statcast_extra": statcast_extra,
+        "materialized_views": materialized_views,
+    }
+
+
+@flow(name="statcast-update-date", log_prints=True)
+def statcast_update_date(game_date: date | str) -> dict[str, Any]:
+    """Fetch and upsert Statcast rows for a single ``game_date`` (regular season only)."""
+    log = get_run_logger()
+    database_url = resolve_database_url_for_flow()
+    d = _coerce_game_date(game_date)
+    start, end = _datetime_range_for_game_date(d)
+    before = statcast_snapshot_metrics_task(database_url)
+    ingest = statcast_ingest_range_task(start, end, database_url)
+    after = statcast_snapshot_metrics_task(database_url)
+    create_markdown_artifact(
+        key="statcast-run-summary",
+        markdown=_artifact_markdown(f"update_date {d.isoformat()}", before, after, ingest),
+    )
+    statcast_extra = statcast_extra_ingest_year_flow(
+        year=d.year,
+        start_date=d,
+        end_date=d,
+    )
+    materialized_views = refresh_materialized_views_flow()
+    log.info(
+        "Run summary: game_date=%s before=%s after=%s ingest=%s statcast_extra=%s materialized_views=%s",
+        d.isoformat(),
+        before,
+        after,
+        ingest,
+        statcast_extra,
+        materialized_views,
+    )
+    return {
+        "game_date": d.isoformat(),
         "before": before,
         "after": after,
         "ingest": ingest,

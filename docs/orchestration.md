@@ -106,7 +106,7 @@ If the worker cannot reach your warehouse by hostname/IP from inside Docker, use
 - **Validate** by letting Prefect run alongside cron for a few days and comparing row counts / `max(game_date)` in the warehouse.
 - **Disable cron** after you trust Prefect: remove the crontab line that called `update_statcast.py`.
 
-Ad-hoc CLI runs remain available: `uv run python update_statcast.py update-recent --days 1`.
+Ad-hoc CLI runs remain available: `uv run python update_statcast.py update-recent --days 1`, and for one day: `uv run python update_statcast.py update-date 2025-06-15`. Prefect deployment **`statcast-update-date`** runs the same ingest plus `statcast_extra` and materialized-view refresh for that `game_date` (override the `game_date` parameter when triggering).
 
 ## Run metadata in the UI
 
