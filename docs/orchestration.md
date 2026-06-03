@@ -131,7 +131,7 @@ This gives alerts without opening the UI.
 3. Append a deployment stanza to `prefect.yaml` (entrypoint, `work_pool.name: etl-pool`, optional `schedule`).
 4. Run `uv run prefect deploy --all` (or deploy a single deployment by name per Prefect CLI docs).
 
-Downstream steps (for example **refresh materialized views** after a load) fit naturally as extra `@task`s in the same flow, chained after the ingest task.
+Downstream steps (for example **dbt marts** or **refresh materialized views** after a load) fit naturally as extra `@task`s in the same flow, chained after the ingest task. Prefer `dbt build --selector post_statcast_ingest` once transforms live in dbt (see [`docs/dbt.md`](dbt.md)).
 
 ## UI behind a reverse proxy or tunnel (Cloudflare, nginx, etc.)
 

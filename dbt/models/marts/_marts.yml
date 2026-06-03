@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: games
+    description: One row per game in warehouse Statcast data (all seasons and game types loaded).
+    config:
+      materialized: table
+    columns:
+      - name: game_pk
+        tests: [not_null, unique]
+      - name: game_date
+        tests: [not_null]
+      - name: home_team
+        tests: [not_null]
+      - name: away_team
+        tests: [not_null]
+
+  - name: current_season_batting_stats
+    description: >
+      Current-season batting leaderboard (replaces warehouse materialized view of the same name).
+      Logic ported from query.prql; add dbt vars later for API-style filters (date range, qualified, platoon, etc.).
+    columns:
+      - name: player_id
+        tests: [not_null, unique]
+      - name: woba
+        tests: [not_null]

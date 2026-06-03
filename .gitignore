@@ -11,3 +11,9 @@ wheels/
 
 # Local secrets (use for docker compose DATABASE_URL, etc.)
 .env
+
+# dbt
+target/
+dbt_packages/
+logs/
+.user.yml

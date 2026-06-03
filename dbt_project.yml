@@ -1,0 +1,41 @@
+name: etl_scripts
+version: "1.0.0"
+config-version: 2
+
+profile: etl_scripts
+
+model-paths: ["dbt/models"]
+macro-paths: ["dbt/macros"]
+test-paths: ["dbt/tests"]
+seed-paths: ["dbt/seeds"]
+analysis-paths: ["dbt/analyses"]
+
+target-path: target
+clean-targets:
+  - target
+  - dbt_packages
+
+vars:
+  # Override at runtime: dbt build --vars '{"season_year": 2025}'
+  season_year: null
+
+# pg_duckdb: use DuckDB execution for Postgres-only queries (see pg_duckdb settings).
+on-run-start:
+  - "{{ set_duckdb_force_execution() }}"
+
+models:
+  etl_scripts:
+    +pre-hook: "{{ set_duckdb_force_execution() }}"
+    staging:
+      +materialized: view
+      +tags: ["staging"]
+    intermediate:
+      +materialized: view
+      +tags: ["intermediate"]
+    marts:
+      +materialized: materialized_view
+      +tags: ["mart", "post_statcast_ingest"]
+
+tests:
+  etl_scripts:
+    +pre-hook: "{{ set_duckdb_force_execution() }}"

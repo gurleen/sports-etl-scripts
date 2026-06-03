@@ -1,0 +1,6 @@
+selectors:
+  - name: post_statcast_ingest
+    description: Marts to rebuild after Statcast ingest (replaces refresh-materialized-views).
+    definition:
+      method: tag
+      value: post_statcast_ingest

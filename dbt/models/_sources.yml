@@ -1,0 +1,339 @@
+version: 2
+
+sources:
+  - name: warehouse
+    schema: public
+    tables:
+      - name: statcast
+        columns:
+          - name: pitch_type
+            data_type: text
+          - name: game_date
+            data_type: date
+          - name: release_speed
+            data_type: double precision
+          - name: release_pos_x
+            data_type: double precision
+          - name: release_pos_z
+            data_type: double precision
+          - name: player_name
+            data_type: text
+          - name: batter
+            data_type: integer
+          - name: pitcher
+            data_type: integer
+          - name: events
+            data_type: text
+          - name: description
+            data_type: text
+          - name: zone
+            data_type: integer
+          - name: des
+            data_type: text
+          - name: game_type
+            data_type: text
+          - name: stand
+            data_type: text
+          - name: p_throws
+            data_type: text
+          - name: home_team
+            data_type: text
+          - name: away_team
+            data_type: text
+          - name: type
+            data_type: text
+          - name: hit_location
+            data_type: integer
+          - name: bb_type
+            data_type: text
+          - name: balls
+            data_type: integer
+          - name: strikes
+            data_type: integer
+          - name: game_year
+            data_type: integer
+          - name: pfx_x
+            data_type: double precision
+          - name: pfx_z
+            data_type: double precision
+          - name: plate_x
+            data_type: double precision
+          - name: plate_z
+            data_type: double precision
+          - name: on_3b
+            data_type: integer
+          - name: on_2b
+            data_type: integer
+          - name: on_1b
+            data_type: text
+          - name: outs_when_up
+            data_type: integer
+          - name: inning
+            data_type: integer
+          - name: inning_topbot
+            data_type: text
+          - name: hc_x
+            data_type: double precision
+          - name: hc_y
+            data_type: double precision
+          - name: vx0
+            data_type: double precision
+          - name: vy0
+            data_type: double precision
+          - name: vz0
+            data_type: double precision
+          - name: ax
+            data_type: double precision
+          - name: ay
+            data_type: double precision
+          - name: az
+            data_type: double precision
+          - name: sz_top
+            data_type: double precision
+          - name: sz_bot
+            data_type: double precision
+          - name: hit_distance_sc
+            data_type: integer
+          - name: launch_speed
+            data_type: double precision
+          - name: launch_angle
+            data_type: integer
+          - name: effective_speed
+            data_type: double precision
+          - name: release_spin_rate
+            data_type: integer
+          - name: release_extension
+            data_type: double precision
+          - name: game_pk
+            data_type: integer
+          - name: fielder_2
+            data_type: integer
+          - name: fielder_3
+            data_type: integer
+          - name: fielder_4
+            data_type: integer
+          - name: fielder_5
+            data_type: integer
+          - name: fielder_6
+            data_type: integer
+          - name: fielder_7
+            data_type: integer
+          - name: fielder_8
+            data_type: integer
+          - name: fielder_9
+            data_type: integer
+          - name: release_pos_y
+            data_type: double precision
+          - name: estimated_ba_using_speedangle
+            data_type: double precision
+          - name: estimated_woba_using_speedangle
+            data_type: double precision
+          - name: woba_value
+            data_type: double precision
+          - name: woba_denom
+            data_type: integer
+          - name: babip_value
+            data_type: integer
+          - name: iso_value
+            data_type: integer
+          - name: launch_speed_angle
+            data_type: integer
+          - name: at_bat_number
+            data_type: integer
+          - name: pitch_number
+            data_type: integer
+          - name: pitch_name
+            data_type: text
+          - name: home_score
+            data_type: integer
+          - name: away_score
+            data_type: integer
+          - name: bat_score
+            data_type: integer
+          - name: fld_score
+            data_type: integer
+          - name: post_away_score
+            data_type: integer
+          - name: post_home_score
+            data_type: integer
+          - name: post_bat_score
+            data_type: integer
+          - name: post_fld_score
+            data_type: integer
+          - name: if_fielding_alignment
+            data_type: text
+          - name: of_fielding_alignment
+            data_type: text
+          - name: spin_axis
+            data_type: integer
+          - name: delta_home_win_exp
+            data_type: double precision
+          - name: delta_run_exp
+            data_type: double precision
+          - name: bat_speed
+            data_type: double precision
+          - name: swing_length
+            data_type: double precision
+          - name: estimated_slg_using_speedangle
+            data_type: double precision
+          - name: delta_pitcher_run_exp
+            data_type: double precision
+          - name: hyper_speed
+            data_type: double precision
+          - name: home_score_diff
+            data_type: integer
+          - name: bat_score_diff
+            data_type: integer
+          - name: home_win_exp
+            data_type: double precision
+          - name: bat_win_exp
+            data_type: double precision
+          - name: age_pit_legacy
+            data_type: integer
+          - name: age_bat_legacy
+            data_type: integer
+          - name: age_pit
+            data_type: integer
+          - name: age_bat
+            data_type: integer
+          - name: n_thruorder_pitcher
+            data_type: integer
+          - name: n_priorpa_thisgame_player_at_bat
+            data_type: integer
+          - name: pitcher_days_since_prev_game
+            data_type: text
+          - name: batter_days_since_prev_game
+            data_type: text
+          - name: pitcher_days_until_next_game
+            data_type: text
+          - name: batter_days_until_next_game
+            data_type: text
+          - name: api_break_z_with_gravity
+            data_type: double precision
+          - name: api_break_x_arm
+            data_type: double precision
+          - name: api_break_x_batter_in
+            data_type: double precision
+          - name: arm_angle
+            data_type: text
+          - name: attack_angle
+            data_type: double precision
+          - name: attack_direction
+            data_type: double precision
+          - name: swing_path_tilt
+            data_type: double precision
+          - name: intercept_ball_minus_batter_pos_x_inches
+            data_type: double precision
+          - name: intercept_ball_minus_batter_pos_y_inches
+            data_type: double precision
+          - name: is_batted_ball
+            data_type: boolean
+
+      - name: players
+        columns:
+          - name: id
+            data_type: integer
+          - name: full_name
+            data_type: text
+          - name: first_name
+            data_type: text
+          - name: last_name
+            data_type: text
+          - name: use_name
+            data_type: text
+          - name: current_team_id
+            data_type: integer
+          - name: primary_number
+            data_type: integer
+          - name: birth_date
+            data_type: date
+          - name: current_age
+            data_type: integer
+          - name: position_code
+            data_type: text
+          - name: position_name
+            data_type: text
+          - name: pitch_hand
+            data_type: text
+          - name: bat_side
+            data_type: text
+
+      - name: teams
+        columns:
+          - name: id
+            data_type: integer
+          - name: name
+            data_type: text
+          - name: abbreviation
+            data_type: text
+          - name: league
+            data_type: text
+          - name: division
+            data_type: text
+
+      - name: weights
+        columns:
+          - name: game_year
+            data_type: integer
+          - name: league_woba
+            data_type: double precision
+          - name: woba_scale
+            data_type: double precision
+          - name: w_bb
+            data_type: double precision
+          - name: w_hbp
+            data_type: double precision
+          - name: w_single
+            data_type: double precision
+          - name: w_double
+            data_type: double precision
+          - name: w_triple
+            data_type: double precision
+          - name: w_home_run
+            data_type: double precision
+          - name: run_sb
+            data_type: double precision
+          - name: run_cs
+            data_type: double precision
+          - name: runs_per_pa
+            data_type: double precision
+          - name: r_w_ratio
+            data_type: double precision
+          - name: c_fip
+            data_type: double precision
+
+      - name: park_factors
+        columns:
+          - name: game_year
+            data_type: integer
+          - name: team
+            data_type: text
+          - name: five_yr
+            data_type: double precision
+          - name: three_yr
+            data_type: double precision
+          - name: one_yr
+            data_type: double precision
+          - name: single
+            data_type: double precision
+          - name: double
+            data_type: double precision
+          - name: triple
+            data_type: double precision
+          - name: home_run
+            data_type: double precision
+          - name: strike_out
+            data_type: double precision
+          - name: walk
+            data_type: double precision
+          - name: ground_ball
+            data_type: double precision
+          - name: fly_ball
+            data_type: double precision
+          - name: line_drive
+            data_type: double precision
+          - name: iffb
+            data_type: double precision
+          - name: fip
+            data_type: double precision
+

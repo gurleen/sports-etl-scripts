@@ -31,11 +31,24 @@ let to_bool = b -> case [
     true => 0
 ]
 
+# PARAMETERS
+# $1 = from_date (date)
+# $2 = to_date (date)
+# $3 = qualified (boolean)
+# $4 = p_throws ("L", "R", "S", null)
+# $5 = stand ("L", "R", "S", null)
+# $6 = position (full name)
+# $7 = league ("NL", "AL")
+
+
 let batting_logs = (
     from statcast
     filter events != "truncated_pa"
     filter events != ""
     filter game_type == "R"
+    filter ($1 == null || game_date >= $1)
+    filter ($2 == null || game_date <= $2)
+    filter ($4 == null || p_throws == $4)
     derive {
         plate_appearance = 1,
         at_bat = to_bool(events | in nonAtBatEvents | not),
@@ -47,7 +60,8 @@ let batting_logs = (
         double = to_bool(events == "double"),
         triple = to_bool(events == "triple"),
         home_run = to_bool(events == "home_run"),
-        sac_fly = to_bool(events == "sac_fly")
+        sac_fly = to_bool(events == "sac_fly"),
+        strike_out = to_bool(events == "strikeout")
     }
     select {
         game_date,
@@ -65,6 +79,7 @@ let batting_logs = (
         triple,
         home_run,
         sac_fly,
+        strike_out
     }
 )
 
@@ -73,7 +88,7 @@ let batting_stats = (
     derive {
         all_walks = walk + intent_walk,
     }
-    group {batter, game_year} (
+    group {batter} (
         aggregate {
             pa = sum plate_appearance,
             ab = sum at_bat,
@@ -86,13 +101,17 @@ let batting_stats = (
             double = sum double,
             triple = sum triple,
             hr = sum home_run,
-            sf = sum sac_fly
+            sf = sum sac_fly,
+            so = sum strike_out
         }
     )
 )
 
 let agg_stats = (
     from batting_stats
+    derive {
+        babip_denom = ab - so - hr + sf
+    }
     derive {
         batting_average = case [
             ab > 0 => h / ab,
@@ -105,6 +124,10 @@ let agg_stats = (
         slugging_percentage = case [
             ab > 0 => (single + 2 * double + 3 * triple + 4 * hr) / ab,
             true => null
+        ],
+        babip_value = case [
+            babip_denom > 0 => (h - hr) / babip_denom,
+            true => null
         ]
     }
     join side:left players (
@@ -114,6 +137,7 @@ let agg_stats = (
         batting_stats.batter,
         game_year,
         players.full_name,
+        players.current_team_id,
         batting_stats.pa,
         batting_stats.ab,
         batting_stats.ubb,
@@ -126,14 +150,16 @@ let agg_stats = (
         batting_stats.triple,
         batting_stats.hr,
         batting_stats.sf,
+        batting_stats.so,
         avg = (batting_average | math.round 3),
         obp = (on_base_percentage | math.round 3),
         slg = (slugging_percentage | math.round 3),
+        babip = (babip_value | math.round 3)
     }
 )
 
 let agg_stats_with_woba = (
-    agg_stats
+    from agg_stats
     join side:left weights (==game_year)
     derive {
         woba_num = (w_bb * ubb) + (w_hbp * hbp) + (w_single * single) + (w_double * double) + (w_triple * triple) + (w_home_run * hr),
@@ -148,6 +174,7 @@ let agg_stats_with_woba = (
     select {
         batter,
         full_name,
+        current_team_id,
         game_year,
         pa,
         ab,
@@ -161,11 +188,151 @@ let agg_stats_with_woba = (
         triple,
         hr,
         sf,
+        so,
         avg,
         obp,
         slg,
+        babip,
         woba = (woba | math.round 3)
     }
 )
 
-from agg_stats_with_woba
+let unique_teams = (
+    from statcast
+    derive {
+        team = case [
+            inning_topbot == "Top" => away_team,
+            true => home_team
+        ]
+    }
+    select { game_date, game_pk, team }
+)
+
+let team_qualifier_values = (
+    from unique_teams
+    filter ($1 == null || game_date >= $1)
+    filter ($2 == null || game_date <= $2)
+    group { team, game_pk } (take 1)
+    group { team } ( 
+        aggregate {
+            games = count game_pk
+        }
+    )
+    derive {
+        min_pa = (games * 3.1)
+    }
+    select {
+        team,
+        games,
+        min_pa
+    }
+)
+
+let adv_stats = (
+    from agg_stats_with_woba
+    join side:left teams (agg_stats_with_woba.current_team_id == teams.id)
+    join side:left team_qualifier_values (teams.abbreviation == team_qualifier_values.team)
+    join side:left weights (==game_year)
+    derive {
+        eff_min_pa = case [
+            $4 == "L" => (team_qualifier_values.min_pa * 0.25),
+            $4 == "R" => (team_qualifier_values.min_pa * 0.75),
+            true => team_qualifier_values.min_pa
+        ]
+    }
+    derive {
+        qualified = pa >= eff_min_pa,
+        ops = obp + slg,
+        wraa = ((woba - weights.league_woba) / weights.woba_scale) * pa,
+        wrc = (((woba - weights.league_woba) / weights.woba_scale) + weights.runs_per_pa) * pa
+    }
+    derive {
+        wraa_per_pa = wraa / pa,
+        bb_pct = (bb / pa | math.round 3),
+        so_pct = (so / pa | math.round 3)
+    }
+    select {
+        player_id = batter,
+        agg_stats_with_woba.game_year,
+        full_name,
+        team = teams.abbreviation,
+        league = teams.league,
+        qualified,
+        pa,
+        ab,
+        so,
+        avg,
+        obp,
+        slg,
+        ops,
+        babip,
+        woba,
+        wraa,
+        wrc,
+        wraa_per_pa,
+        bb_pct,
+        so_pct
+    }
+)
+
+let league_wrc = (
+    from adv_stats
+    group {league} (
+        aggregate {
+            wrc = sum wrc,
+            pa = sum pa
+        }
+    )
+    derive {
+        wrc_per_pa = wrc / pa
+    }
+    filter league != null
+    select {
+        league,
+        wrc_per_pa
+    }
+)
+
+let final_stats = (
+    from adv_stats
+    derive {
+        prev_year = game_year - 1
+    }
+    join side:left league_wrc (==league)
+    join side:left weights (==game_year)
+    join side:left park_factors (prev_year == park_factors.game_year && team == park_factors.team)
+    join side:left players (player_id == players.id)
+    derive {
+        wrcp_num = (wraa_per_pa + weights.runs_per_pa) + (weights.runs_per_pa - ((park_factors.five_yr / 100) * weights.runs_per_pa))
+    }
+    derive {
+        wrc_plus = ((wrcp_num / league_wrc.wrc_per_pa) * 100 | math.round 0)
+    }
+    filter ($3 == null || qualified == $3)
+    filter ($5 == null || players.bat_side == $5)
+    filter ($6 == null || players.position_name == $6)
+    filter ($7 == null || adv_stats.league == $7)
+    select {
+        player_id,
+        players.full_name,
+        players.position_name,
+        team,
+        adv_stats.league,
+        pa,
+        ab,
+        avg,
+        obp,
+        slg,
+        ops,
+        babip,
+        woba,
+        wraa = (wraa | math.round 1),
+        wrc = (wrc | math.round 0),
+        wrc_plus,
+        bb_pct,
+        so_pct
+    }
+    sort {-woba}
+)
+
+from final_stats

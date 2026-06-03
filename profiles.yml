@@ -1,0 +1,15 @@
+# Committed profile: secrets via env vars (same as etl_scripts/statcast.py).
+# Override location with DBT_PROFILES_DIR or ~/.dbt/profiles.yml if you prefer.
+
+etl_scripts:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER', 'postgres') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'postgres') }}"
+      schema: baseball
+      threads: 4

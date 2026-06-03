@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_statcast__batting_events
+    description: Regular-season Statcast pitches with per-PA event flags for batting aggregates.
+    columns:
+      - name: batter
+        tests: [not_null]
+      - name: game_year
+        tests: [not_null]
+
+  - name: stg_statcast__games
+    description: One row per game_pk from warehouse Statcast pitch data.
+    columns:
+      - name: game_pk
+        tests: [not_null, unique]
+      - name: game_date
+        tests: [not_null]
+      - name: home_team
+        tests: [not_null]
+      - name: away_team
+        tests: [not_null]
