@@ -114,6 +114,8 @@ Each Statcast flow records a **Markdown artifact** `statcast-run-summary` (date 
 
 The **`statcast-extra-ingest-year`** deployment loads missing Savant data **one `game_date` at a time** (all games on that date before the next). Use **`start_date`** / **`end_date`** (inclusive `game_date` window) to align with a Statcast ingest; **`statcast-update-recent`** passes the same window as its ingest range. Without a window, **`days`** limits to the N **most recent** missing dates; omit both window and **`days`** to process every missing date in **`year`** (oldest first). Progress artifact: `statcast-extra-ingest`.
 
+**`statcast-backfill`** finds regular-season calendar dates in a given **`year`** (March–November) with **no** `statcast` rows, fetches each missing date from pybaseball, and upserts **one `game_pk` at a time** (same pacing as extras). Optional **`limit_days`** caps how many gap dates to fill (oldest first). After a successful backfill it runs **`statcast_extra`** for the processed date range. CLI: `uv run python update_statcast.py backfill 2024`. Progress artifact: `statcast-backfill`.
+
 ## Failure notifications (recommended)
 
 Prefect OSS supports **Automations** in the UI (see [Automations](https://docs.prefect.io/latest/concepts/automations/)):

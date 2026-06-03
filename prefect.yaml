@@ -48,6 +48,18 @@ deployments:
     work_pool:
       name: etl-pool
 
+  - name: statcast-backfill
+    description: Backfill Statcast for season dates in a year with no rows (one game at a time). Override `year`.
+    tags:
+      - statcast
+    entrypoint: flows/statcast_backfill_flow.py:statcast_backfill_flow
+    parameters:
+      year: 2025
+      limit_days: null
+      pause_sec: 0.2
+    work_pool:
+      name: etl-pool
+
   - name: statcast-extra-ingest-year
     description: Savant `/gf` gamefeed pitch rows for missing `game_pk` values (current calendar year by default).
     tags:

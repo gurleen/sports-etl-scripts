@@ -12,6 +12,7 @@ from etl_scripts.statcast import (
     load_data_to_db,
     write_statcast_csv,
 )
+from etl_scripts.statcast_backfill import backfill_statcast_missing_dates_for_year
 
 app = typer.Typer()
 
@@ -23,6 +24,22 @@ def update_full():
     data = get_statcast_data(EARLIEST_DATA_DATE, today)
     load_data_to_db(data, database_url=url)
     logger.info("Full update completed")
+
+
+@app.command()
+def backfill(
+    year: int,
+    limit_days: int | None = typer.Option(None, help="Max missing dates to process (oldest first)."),
+    pause_sec: float = typer.Option(0.2, help="Pause between game loads."),
+):
+    url = get_database_url()
+    summary = backfill_statcast_missing_dates_for_year(
+        year,
+        database_url=url,
+        limit_days=limit_days,
+        pause_sec=pause_sec,
+    )
+    logger.info("Backfill year {} complete: {}", year, summary)
 
 
 @app.command()
