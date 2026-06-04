@@ -27,4 +27,4 @@ dbt = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["etl_scripts", "models"]
+packages = ["etl_scripts", "models", "api_clients"]
