@@ -1,9 +1,7 @@
-# Secrets:
+# Secrets (Repository secrets):
 #   SSH_PRIVATE_KEY   — PEM private key for the deploy user (full key including headers)
 #   SSH_KNOWN_HOSTS   — Optional. One or more lines from `ssh-keyscan your.host`
 #                       (recommended). If omitted, StrictHostKeyChecking=accept-new is used.
-#
-# Variables (Repository variables):
 #   HOST              — VPS hostname or IP
 #   USER              — SSH username (e.g. ubuntu)
 #   APP_DIRECTORY     — Absolute path to the clone on the server (e.g. /home/ubuntu/etl-scripts)
@@ -16,7 +14,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ vars.HOST }}
+  group: deploy-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -27,9 +25,9 @@ jobs:
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
-          DEPLOY_HOST: ${{ vars.HOST }}
-          DEPLOY_USER: ${{ vars.USER }}
-          APP_DIRECTORY: ${{ vars.APP_DIRECTORY }}
+          DEPLOY_HOST: ${{ secrets.HOST }}
+          DEPLOY_USER: ${{ secrets.USER }}
+          APP_DIRECTORY: ${{ secrets.APP_DIRECTORY }}
         run: |
           set -euo pipefail
           if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
@@ -37,7 +35,7 @@ jobs:
             exit 1
           fi
           if [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_USER:-}" ] || [ -z "${APP_DIRECTORY:-}" ]; then
-            echo "Set repository variables HOST, USER, and APP_DIRECTORY" >&2
+            echo "Set repository secrets HOST, USER, and APP_DIRECTORY" >&2
             exit 1
           fi
 
