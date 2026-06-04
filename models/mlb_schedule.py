@@ -18,11 +18,11 @@ class ScheduleGameStatus(BaseModel):
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    abstract_game_state: AbstractGameState = Field(
+    abstract_game_state: str = Field(
         validation_alias=AliasChoices("abstractGameState", "abstract_game_state")
     )
     detailed_state: str = Field(validation_alias=AliasChoices("detailedState", "detailed_state"))
-    coded_game_state: CodedGameState = Field(
+    coded_game_state: str = Field(
         validation_alias=AliasChoices("codedGameState", "coded_game_state")
     )
 
@@ -73,13 +73,11 @@ class ScheduleGame(BaseModel):
     status: ScheduleGameStatus
     teams: ScheduleGameTeams
     venue: ScheduleVenue
-    game_type: GameTypeCode = Field(validation_alias=AliasChoices("gameType", "game_type"))
+    game_type: str = Field(validation_alias=AliasChoices("gameType", "game_type"))
     series_description: str | None = Field(
         default=None, validation_alias=AliasChoices("seriesDescription", "series_description")
     )
-    double_header: DoubleHeaderFlag = Field(
-        validation_alias=AliasChoices("doubleHeader", "double_header")
-    )
+    double_header: str = Field(validation_alias=AliasChoices("doubleHeader", "double_header"))
     is_tie: bool = Field(default=False, validation_alias=AliasChoices("isTie", "is_tie"))
 
 

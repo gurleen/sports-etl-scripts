@@ -86,3 +86,15 @@ deployments:
       pause_sec: 0.2
     work_pool:
       name: etl-pool
+
+  - name: mlb-schedule-ingest-year
+    description: MLB Stats API schedule for one season (`season` year). Replaces `mlb_schedule` rows for that year.
+    tags:
+      - mlb
+      - schedule
+    entrypoint: flows/mlb_schedule_flow.py:mlb_schedule_ingest_year_flow
+    parameters:
+      year: 2025
+      sport_id: 1
+    work_pool:
+      name: etl-pool
