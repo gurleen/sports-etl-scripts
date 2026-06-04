@@ -5,6 +5,9 @@
 #   HOST              — VPS hostname or IP
 #   USER              — SSH username (e.g. ubuntu)
 #   APP_DIRECTORY     — Absolute path to the clone on the server (e.g. /home/ubuntu/etl-scripts)
+#
+# Deploy runs scripts/docker_deploy.sh on the VPS (git pull, conditional worker rebuild, compose up).
+# BuildKit must be enabled for Dockerfile cache mounts (DOCKER_BUILDKIT / COMPOSE_DOCKER_CLI_BUILD).
 
 name: Deploy
 
@@ -20,6 +23,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
     steps:
       - name: Deploy over SSH
         env:
@@ -52,8 +58,23 @@ jobs:
             HOST_KEY_OPTS="-o StrictHostKeyChecking=accept-new"
           fi
 
+          REMOTE_CMD=$(cat <<EOF
+          set -euo pipefail
+          export DOCKER_BUILDKIT=${DOCKER_BUILDKIT}
+          export COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD}
+          cd "${APP_DIRECTORY}"
+          git pull --ff-only
+          if [ ! -f scripts/docker_deploy.sh ]; then
+            echo "Missing scripts/docker_deploy.sh after git pull." >&2
+            exit 1
+          fi
+          chmod +x scripts/docker_deploy.sh
+          exec bash scripts/docker_deploy.sh
+          EOF
+          )
+
           ssh -i ~/.ssh/deploy_key \
             -o IdentitiesOnly=yes \
             $HOST_KEY_OPTS \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "set -euo pipefail && cd \"${APP_DIRECTORY}\" && git pull && docker compose up -d --build"
+            "$REMOTE_CMD"

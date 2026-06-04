@@ -34,7 +34,9 @@ services:
       - "4200:4200"
 
   prefect-worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       - prefect-server
     # Pass secrets without Compose ${...} interpolation (breaks URLs with $, #, etc.).

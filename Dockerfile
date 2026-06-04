@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Worker image: Prefect process worker + project dependencies (Statcast ETL).
 FROM prefecthq/prefect:3-python3.11
 
@@ -5,15 +6,28 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock prefect.yaml dbt_project.yml profiles.yml packages.yml package-lock.yml selectors.yml ./
+# Layer 1: Python dependencies (invalidates only when lockfiles change).
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --extra dbt --no-install-project
+
+# Layer 2: dbt package dependencies (invalidates when dbt package manifests change).
+COPY dbt_project.yml packages.yml package-lock.yml ./
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    --mount=type=cache,target=/app/dbt_packages,sharing=locked \
+    uv run dbt deps
+
+# Layer 3: application code (fast rebuild when only Python/flow/dbt SQL changes).
+COPY prefect.yaml profiles.yml selectors.yml ./
 COPY etl_scripts ./etl_scripts
 COPY models ./models
+COPY api_clients ./api_clients
 COPY flows ./flows
 COPY dbt ./dbt
 COPY update_statcast.py ./
-COPY README.md ./
 
-RUN uv sync --frozen --no-dev --extra dbt && uv run dbt deps
+RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --extra dbt
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app

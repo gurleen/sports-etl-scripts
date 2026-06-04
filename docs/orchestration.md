@@ -70,7 +70,17 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME
 Then:
 
 ```bash
-docker compose up -d --build
+export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
+bash scripts/docker_deploy.sh
+```
+
+(`docker_deploy.sh` pulls latest `main`, rebuilds **`prefect-worker`** only when the clone changed, then `docker compose up -d`. Dependency layers stay cached when only app code changes.)
+
+For a one-off local build without the script:
+
+```bash
+export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
+docker compose build prefect-worker && docker compose up -d
 ```
 
 The worker service uses Compose **`env_file`** so the value is not parsed as `${...}` interpolation (which often strips or corrupts URLs that contain `$`, `#`, or spaces). Recreate the worker after changing `.env`: `docker compose up -d --force-recreate prefect-worker`.
