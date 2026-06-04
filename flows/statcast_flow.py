@@ -10,6 +10,7 @@ from prefect.artifacts import create_markdown_artifact
 
 from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 from etl_scripts.statcast import EARLIEST_DATA_DATE, get_statcast_data, load_data_to_db, statcast_table_metrics
+from flows.dbt_flow import run_dbt_rebuild_after_statcast
 from flows.statcast_extra_flow import statcast_extra_ingest_year_flow
 
 
@@ -94,18 +95,27 @@ def statcast_update_recent(days: int = 1) -> dict[str, Any]:
         start_date=start.date(),
         end_date=today.date(),
     )
+    dbt_rebuild = run_dbt_rebuild_after_statcast(
+        before=before,
+        after=after,
+        ingest=ingest,
+        statcast_extra=statcast_extra,
+        season_year=today.year,
+    )
     log.info(
-        "Run summary: before=%s after=%s ingest=%s statcast_extra=%s",
+        "Run summary: before=%s after=%s ingest=%s statcast_extra=%s dbt=%s",
         before,
         after,
         ingest,
         statcast_extra,
+        dbt_rebuild,
     )
     return {
         "before": before,
         "after": after,
         "ingest": ingest,
         "statcast_extra": statcast_extra,
+        "dbt_rebuild": dbt_rebuild,
     }
 
 
@@ -128,13 +138,21 @@ def statcast_update_date(game_date: date | str) -> dict[str, Any]:
         start_date=d,
         end_date=d,
     )
+    dbt_rebuild = run_dbt_rebuild_after_statcast(
+        before=before,
+        after=after,
+        ingest=ingest,
+        statcast_extra=statcast_extra,
+        season_year=d.year,
+    )
     log.info(
-        "Run summary: game_date=%s before=%s after=%s ingest=%s statcast_extra=%s",
+        "Run summary: game_date=%s before=%s after=%s ingest=%s statcast_extra=%s dbt=%s",
         d.isoformat(),
         before,
         after,
         ingest,
         statcast_extra,
+        dbt_rebuild,
     )
     return {
         "game_date": d.isoformat(),
@@ -142,6 +160,7 @@ def statcast_update_date(game_date: date | str) -> dict[str, Any]:
         "after": after,
         "ingest": ingest,
         "statcast_extra": statcast_extra,
+        "dbt_rebuild": dbt_rebuild,
     }
 
 
@@ -157,8 +176,9 @@ def statcast_update_full() -> dict[str, Any]:
         key="statcast-run-summary",
         markdown=_artifact_markdown("update_full", before, after, ingest),
     )
-    log.info("Run summary: before=%s after=%s ingest=%s", before, after, ingest)
-    return {"before": before, "after": after, "ingest": ingest}
+    dbt_rebuild = run_dbt_rebuild_after_statcast(before=before, after=after, ingest=ingest)
+    log.info("Run summary: before=%s after=%s ingest=%s dbt=%s", before, after, ingest, dbt_rebuild)
+    return {"before": before, "after": after, "ingest": ingest, "dbt_rebuild": dbt_rebuild}
 
 
 @flow(name="statcast-season", log_prints=True)
@@ -174,5 +194,11 @@ def statcast_season(year: int) -> dict[str, Any]:
         key="statcast-run-summary",
         markdown=_artifact_markdown(f"season {year}", before, after, ingest),
     )
-    log.info("Run summary: before=%s after=%s ingest=%s", before, after, ingest)
-    return {"before": before, "after": after, "ingest": ingest}
+    dbt_rebuild = run_dbt_rebuild_after_statcast(
+        before=before,
+        after=after,
+        ingest=ingest,
+        season_year=year,
+    )
+    log.info("Run summary: before=%s after=%s ingest=%s dbt=%s", before, after, ingest, dbt_rebuild)
+    return {"before": before, "after": after, "ingest": ingest, "dbt_rebuild": dbt_rebuild}

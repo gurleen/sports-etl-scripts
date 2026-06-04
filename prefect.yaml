@@ -60,6 +60,19 @@ deployments:
     work_pool:
       name: etl-pool
 
+  - name: dbt-rebuild-baseball
+    description: Rebuild baseball dbt models (post_statcast_ingest selector). Use force=true to skip change detection.
+    tags:
+      - dbt
+      - warehouse
+    entrypoint: flows/dbt_flow.py:dbt_rebuild_baseball_flow
+    parameters:
+      selector: post_statcast_ingest
+      season_year: null
+      force: false
+    work_pool:
+      name: etl-pool
+
   - name: statcast-extra-ingest-year
     description: Savant `/gf` gamefeed pitch rows for missing `game_pk` values (current calendar year by default).
     tags:

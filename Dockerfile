@@ -5,15 +5,17 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock prefect.yaml ./
+COPY pyproject.toml uv.lock prefect.yaml dbt_project.yml profiles.yml packages.yml package-lock.yml selectors.yml ./
 COPY etl_scripts ./etl_scripts
 COPY models ./models
 COPY flows ./flows
+COPY dbt ./dbt
 COPY update_statcast.py ./
 COPY README.md ./
 
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --extra dbt && uv run dbt deps
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app
 ENV ETL_REPO_ROOT=/app
+ENV DBT_PROFILES_DIR=/app
