@@ -126,6 +126,7 @@ def replace_schedule_for_year(
 ) -> int:
     """Replace all ``mlb_schedule`` rows for ``season_year`` with ``rows``."""
     url = database_url or get_database_url()
+    ensure_mlb_schedule_table(database_url=url)
     if not rows:
         with psycopg2.connect(url) as conn:
             with conn.cursor() as cur:
@@ -163,6 +164,7 @@ def replace_schedule_for_year(
 
 def mlb_schedule_table_metrics(*, database_url: str | None = None) -> dict[str, Any]:
     url = database_url or get_database_url()
+    ensure_mlb_schedule_table(database_url=url)
     q = f"""
     SELECT
         COUNT(*)::bigint AS row_count,

@@ -8,7 +8,11 @@ from typing import Any
 from prefect import flow, get_run_logger, task
 from prefect.artifacts import create_markdown_artifact
 
-from etl_scripts.mlb_schedule import mlb_schedule_table_metrics, sync_mlb_schedule_for_year
+from etl_scripts.mlb_schedule import (
+    ensure_mlb_schedule_table,
+    mlb_schedule_table_metrics,
+    sync_mlb_schedule_for_year,
+)
 from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 
 
@@ -62,6 +66,7 @@ def mlb_schedule_ingest_year_flow(
     log = get_run_logger()
     database_url = resolve_database_url_for_flow()
     y = year if year is not None else datetime.now().year
+    ensure_mlb_schedule_table(database_url=database_url)
     before = mlb_schedule_table_metrics(database_url=database_url)
     summary = mlb_schedule_sync_task(y, database_url, sport_id=sport_id)
     after = mlb_schedule_table_metrics(database_url=database_url)
