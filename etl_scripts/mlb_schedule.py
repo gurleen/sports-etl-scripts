@@ -15,6 +15,7 @@ from etl_scripts.statcast import get_database_url
 from models.mlb_schedule import ScheduleGame
 
 MLB_SCHEDULE_TABLE = "mlb_schedule"
+MLB_SCHEDULE_CONFLICT_COLUMNS: tuple[str, ...] = ("game_pk",)
 
 _INSERT_COLUMNS: tuple[str, ...] = (
     "game_pk",
@@ -118,13 +119,38 @@ def _rows_from_schedule_response(response: Any, *, season_year: int) -> list[dic
     return rows
 
 
+def _build_mlb_schedule_upsert_statement() -> sql.Composed:
+    columns = _INSERT_COLUMNS
+    conflict_columns = MLB_SCHEDULE_CONFLICT_COLUMNS
+    update_cols = [c for c in columns if c not in conflict_columns]
+    fields = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+    placeholders = sql.SQL(", ").join(sql.Placeholder() * len(columns))
+    conflict = sql.SQL(", ").join(sql.Identifier(c) for c in conflict_columns)
+    sets = sql.SQL(", ").join(
+        sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(c), sql.Identifier(c)) for c in update_cols
+    )
+    return sql.SQL(
+        "INSERT INTO {} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET {}"
+    ).format(
+        sql.Identifier(MLB_SCHEDULE_TABLE),
+        fields,
+        placeholders,
+        conflict,
+        sets,
+    )
+
+
 def replace_schedule_for_year(
     year: int,
     rows: Sequence[dict[str, Any]],
     *,
     database_url: str | None = None,
 ) -> int:
-    """Replace all ``mlb_schedule`` rows for ``season_year`` with ``rows``."""
+    """
+    Refresh ``mlb_schedule`` for ``season_year``: remove prior rows for that year, then upsert ``rows``.
+
+    Upserts on ``game_pk`` so duplicate API rows or overlapping runs do not raise unique violations.
+    """
     url = database_url or get_database_url()
     ensure_mlb_schedule_table(database_url=url)
     if not rows:
@@ -140,13 +166,7 @@ def replace_schedule_for_year(
         return 0
 
     columns = _INSERT_COLUMNS
-    fields = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
-    placeholders = sql.SQL(", ").join(sql.Placeholder() * len(columns))
-    insert_stmt = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
-        sql.Identifier(MLB_SCHEDULE_TABLE),
-        fields,
-        placeholders,
-    )
+    upsert_stmt = _build_mlb_schedule_upsert_statement()
     tuples = [tuple(r[c] for c in columns) for r in rows]
 
     with psycopg2.connect(url) as conn:
@@ -157,7 +177,7 @@ def replace_schedule_for_year(
                 ),
                 (year,),
             )
-            execute_batch(cur, insert_stmt.as_string(conn), tuples, page_size=500)
+            execute_batch(cur, upsert_stmt.as_string(conn), tuples, page_size=500)
         conn.commit()
     return len(tuples)
 
