@@ -15,6 +15,24 @@ models:
       - name: away_team
         tests: [not_null]
 
+  - name: daily_game_coverage
+    description: >
+      Per calendar day and game type, compares games present in Statcast-derived games
+      against games in the MLB Stats API mlb_schedule ingest.
+    columns:
+      - name: calendar_date
+        tests: [not_null]
+      - name: game_type
+        tests: [not_null]
+      - name: season_year
+        tests: [not_null]
+      - name: games_with_data
+        tests: [not_null]
+      - name: games_scheduled
+        tests: [not_null]
+      - name: data_minus_scheduled
+        tests: [not_null]
+
   - name: current_season_batting_stats
     description: >
       Current-season batting leaderboard (replaces warehouse materialized view of the same name).

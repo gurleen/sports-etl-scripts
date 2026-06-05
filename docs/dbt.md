@@ -32,6 +32,24 @@ The mart `current_season_batting_stats` replaces the warehouse object of the sam
    uv run dbt parse
    ```
 
+4. Refresh warehouse source definitions from Postgres (requires `POSTGRES_*` or `DATABASE_URL`):
+
+   ```bash
+   # Default: a fixed list of ingest tables
+   bash scripts/generate_dbt_sources.sh
+
+   # Every table in schema public (dbt-codegen introspection)
+   DBT_SOURCE_TABLES=all bash scripts/generate_dbt_sources.sh
+
+   # Optional filters (SQL LIKE patterns)
+   DBT_SOURCE_TABLE_PATTERN='statcast%' bash scripts/generate_dbt_sources.sh
+   DBT_SOURCE_EXCLUDE='pg_%' DBT_SOURCE_TABLES=all bash scripts/generate_dbt_sources.sh
+   ```
+
+   Do **not** redirect bare `dbt run-operation` output into `_sources.generated.yml`—dbt logs (including ANSI color codes) mix into stdout/stderr and will corrupt the YAML. The script sends logs to `logs/dbt_generate_source.log` and writes only macro output to `dbt/models/_sources.generated.yml`.
+
+   Under the hood, omitting `table_names` in [dbt-codegen `generate_source`](https://github.com/dbt-labs/dbt-codegen) calls `dbt_utils.get_relations_by_pattern` on `schema_name` (`public` here).
+
 ## Commands
 
 ```bash
