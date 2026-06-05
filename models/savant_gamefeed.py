@@ -46,6 +46,7 @@ class PitchData(BaseModel):
     inning: int
     half_inning: HalfInning
     ab_number: int
+    pitch_number: int = Field(validation_alias=AliasChoices("pitchNumber", "pitch_number"))
     cap_index: int
     outs: int
     batter: int

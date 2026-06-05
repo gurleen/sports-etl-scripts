@@ -78,8 +78,8 @@ def _annotation_nullable(ann: Any) -> tuple[Any, bool]:
     return ann, False
 
 
-def _statcast_extra_ddl() -> str:
-    """CREATE TABLE for ``statcast_extra`` derived from :class:`PitchData` columns."""
+def _statcast_extra_column_defs(*, nullable_required: bool = False) -> list[tuple[str, str]]:
+    """Column name and Postgres type clause for ``statcast_extra``."""
     lead = [
         ("game_pk", "BIGINT NOT NULL"),
         ("savant_pitch_source", "TEXT NOT NULL"),
@@ -87,9 +87,14 @@ def _statcast_extra_ddl() -> str:
     pitch_cols: list[tuple[str, str]] = []
     for name, finfo in PitchData.model_fields.items():
         base_ann, nullable = _annotation_nullable(finfo.annotation)
-        null_sql = "NULL" if nullable else "NOT NULL"
+        null_sql = "NULL" if (nullable or nullable_required) else "NOT NULL"
         pitch_cols.append((name, f"{_pg_type_for_annotation(base_ann)} {null_sql}"))
-    parts = [f'"{n}" {t}' for n, t in lead + pitch_cols]
+    return lead + pitch_cols
+
+
+def _statcast_extra_ddl() -> str:
+    """CREATE TABLE for ``statcast_extra`` derived from :class:`PitchData` columns."""
+    parts = [f'"{n}" {t}' for n, t in _statcast_extra_column_defs()]
     body = ",\n    ".join(parts)
     return (
         f"CREATE TABLE IF NOT EXISTS {STATCAST_EXTRA_TABLE} (\n"
@@ -99,12 +104,38 @@ def _statcast_extra_ddl() -> str:
     )
 
 
+def _ensure_statcast_extra_columns(cur) -> None:
+    """Add columns introduced after the table was first created."""
+    cur.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        """,
+        (STATCAST_EXTRA_TABLE,),
+    )
+    existing = {row[0] for row in cur.fetchall()}
+    for name, typ in _statcast_extra_column_defs(nullable_required=True):
+        if name in existing:
+            continue
+        cur.execute(
+            sql.SQL("ALTER TABLE {} ADD COLUMN {} {}").format(
+                sql.Identifier(STATCAST_EXTRA_TABLE),
+                sql.Identifier(name),
+                sql.SQL(typ),
+            )
+        )
+        logger.info("Added column {}.{} ({})", STATCAST_EXTRA_TABLE, name, typ)
+
+
 def ensure_statcast_extra_table(*, database_url: str | None = None) -> None:
     url = database_url or get_database_url()
     ddl = _statcast_extra_ddl()
     with psycopg2.connect(url) as conn:
         with conn.cursor() as cur:
             cur.execute(ddl)
+            _ensure_statcast_extra_columns(cur)
         conn.commit()
     logger.debug("Ensured table {} exists", STATCAST_EXTRA_TABLE)
 
