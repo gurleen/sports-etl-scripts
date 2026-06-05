@@ -94,6 +94,7 @@ def statcast_update_recent(days: int = 1) -> dict[str, Any]:
         year=today.year,
         start_date=start.date(),
         end_date=today.date(),
+        rebuild_dbt=False,
     )
     dbt_rebuild = run_dbt_rebuild_after_statcast(
         before=before,
@@ -137,6 +138,7 @@ def statcast_update_date(game_date: date | str) -> dict[str, Any]:
         year=d.year,
         start_date=d,
         end_date=d,
+        rebuild_dbt=False,
     )
     dbt_rebuild = run_dbt_rebuild_after_statcast(
         before=before,

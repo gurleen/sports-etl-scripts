@@ -11,6 +11,7 @@ from loguru import logger
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SELECTOR = "post_statcast_ingest"
+POST_STATCAST_EXTRA_SELECTOR = "post_statcast_extra_ingest"
 
 
 def repo_root() -> Path:

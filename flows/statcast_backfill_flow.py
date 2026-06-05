@@ -115,6 +115,7 @@ def statcast_backfill_flow(
             start_date=processed[0],
             end_date=processed[-1],
             pause_sec=pause_sec,
+            rebuild_dbt=False,
         )
     dbt_rebuild = run_dbt_rebuild_after_statcast(
         before=before,

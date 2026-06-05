@@ -51,6 +51,51 @@ models:
       - name: data_minus_scheduled
         tests: [not_null]
 
+  - name: statcast_events
+    description: >
+      Pitch-level Statcast rows enriched with Savant gamefeed fields from statcast_extra.
+      Joined on game_pk, at_bat_number (= ab_number), and pitch_number.
+    config:
+      tags: ["post_statcast_extra_ingest"]
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - game_pk
+              - at_bat_number
+              - pitch_number
+    columns:
+      - name: game_pk
+        tests: [not_null]
+      - name: at_bat_number
+        tests: [not_null]
+      - name: pitch_number
+        tests: [not_null]
+      - name: has_statcast_extra
+        tests: [not_null]
+
+  - name: abs_challenges
+    description: >
+      ABS challenge pitches from statcast_extra (is_abs_challenge = true), with challenge
+      fields unprefixed and minimal pitch context for joining back to statcast_events.
+    config:
+      tags: ["post_statcast_extra_ingest"]
+    columns:
+      - name: game_pk
+        tests: [not_null]
+      - name: play_id
+        tests: [not_null, unique]
+      - name: ab_number
+        tests: [not_null]
+      - name: pitch_number
+        tests: [not_null]
+      - name: challenge_outcome
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['overturned', 'confirmed', 'pending']
+
   - name: current_season_batting_stats
     description: >
       Current-season batting leaderboard (replaces warehouse materialized view of the same name).
