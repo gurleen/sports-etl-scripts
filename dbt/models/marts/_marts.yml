@@ -15,10 +15,28 @@ models:
       - name: away_team
         tests: [not_null]
 
+  - name: game_coverage
+    description: >
+      One row per game_pk from the union of mlb_schedule and Statcast-derived games.
+      Schedule rows with detailed_state Cancelled are excluded.
+      Use coverage_status = missing_data (or has_statcast_data = false and in_schedule = true)
+      to list scheduled games without Statcast data.
+    columns:
+      - name: game_pk
+        tests: [not_null, unique]
+      - name: calendar_date
+        tests: [not_null]
+      - name: coverage_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['covered', 'missing_data', 'data_only']
+
   - name: daily_game_coverage
     description: >
       Per calendar day and game type, compares games present in Statcast-derived games
-      against games in the MLB Stats API mlb_schedule ingest.
+      against games in the MLB Stats API mlb_schedule ingest (Cancelled games excluded).
     columns:
       - name: calendar_date
         tests: [not_null]

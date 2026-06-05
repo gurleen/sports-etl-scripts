@@ -15,6 +15,7 @@ schedule_by_day as (
         season_year,
         count(*) as games_scheduled
     from {{ source('warehouse', 'mlb_schedule') }}
+    where detailed_state != 'Cancelled'
     group by official_date, game_type, season_year
 )
 
