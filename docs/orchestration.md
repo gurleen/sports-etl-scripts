@@ -74,7 +74,7 @@ export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1
 bash scripts/docker_deploy.sh
 ```
 
-(`docker_deploy.sh` pulls latest `main`, rebuilds **`prefect-worker`** only when the clone changed, then `docker compose up -d`. Dependency layers stay cached when only app code changes.)
+(`docker_deploy.sh` pulls latest `main`, rebuilds **`prefect-worker`** only when the clone changed, then `docker compose up -d`. Dependency layers stay cached when only app code changes. CI should call this script only—do not `git pull` before it, or the rebuild step will be skipped. To rebuild without a new commit, run `FORCE_WORKER_REBUILD=1 bash scripts/docker_deploy.sh`.)
 
 For a one-off local build without the script:
 

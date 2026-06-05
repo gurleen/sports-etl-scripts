@@ -47,6 +47,7 @@ services:
       PREFECT_API_URL: http://prefect-server:4200/api
       PREFECT_LOGGING_LEVEL: INFO
       ETL_REPO_ROOT: /app
+      PYTHONPATH: /app
     command: prefect worker start --pool etl-pool --type process
     restart: unless-stopped
     extra_hosts:

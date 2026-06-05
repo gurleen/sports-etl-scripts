@@ -6,7 +6,7 @@
 #   USER              — SSH username (e.g. ubuntu)
 #   APP_DIRECTORY     — Absolute path to the clone on the server (e.g. /home/ubuntu/etl-scripts)
 #
-# Deploy runs scripts/docker_deploy.sh on the VPS (git pull, conditional worker rebuild, compose up).
+# Deploy runs scripts/docker_deploy.sh on the VPS (pull, conditional worker rebuild, compose up).
 # BuildKit must be enabled for Dockerfile cache mounts (DOCKER_BUILDKIT / COMPOSE_DOCKER_CLI_BUILD).
 
 name: Deploy
@@ -63,7 +63,6 @@ jobs:
           export DOCKER_BUILDKIT=${DOCKER_BUILDKIT}
           export COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD}
           cd "${APP_DIRECTORY}"
-          git pull --ff-only
           if [ ! -f scripts/docker_deploy.sh ]; then
             echo "Missing scripts/docker_deploy.sh after git pull." >&2
             exit 1
