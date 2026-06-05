@@ -13,6 +13,7 @@ dbt/target
 dbt/logs
 dbt/dbt_packages
 *.md
+!README.md
 query.prql
 docker-compose.yml
 scripts/prefect_bootstrap.sh

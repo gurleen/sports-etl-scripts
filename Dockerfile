@@ -13,12 +13,13 @@ RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
 
 # Layer 2: dbt package dependencies (invalidates when dbt package manifests change).
 COPY dbt_project.yml packages.yml package-lock.yml ./
+# Use the venv dbt binary so uv does not try to build etl-scripts before app code exists.
 RUN --mount=type=cache,target=/root/.cache/uv,sharing=locked \
     --mount=type=cache,target=/app/dbt_packages,sharing=locked \
-    uv run dbt deps
+    /app/.venv/bin/dbt deps
 
 # Layer 3: application code (fast rebuild when only Python/flow/dbt SQL changes).
-COPY prefect.yaml profiles.yml selectors.yml ./
+COPY README.md prefect.yaml profiles.yml selectors.yml ./
 COPY etl_scripts ./etl_scripts
 COPY models ./models
 COPY api_clients ./api_clients
