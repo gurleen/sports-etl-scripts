@@ -108,3 +108,11 @@ models:
         tests: [not_null, unique]
       - name: woba
         tests: [not_null]
+
+  - name: current_season_pitching_stats
+    description: >
+      Current-season pitching leaderboard (v1: counting stats and basic rates).
+      ERA uses all runs allowed (RA9), not earned runs. Advanced metrics and ER attribution deferred.
+    columns:
+      - name: player_id
+        tests: [not_null, unique]

@@ -11,6 +11,7 @@ from psycopg2 import sql
 # Expand this tuple when new derived views should be refreshed by default.
 DEFAULT_MATERIALIZED_VIEWS: tuple[str, ...] = (
     "current_season_batting_stats",
+    "current_season_pitching_stats",
 )
 
 _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")

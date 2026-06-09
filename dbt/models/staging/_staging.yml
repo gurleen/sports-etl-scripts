@@ -9,6 +9,14 @@ models:
       - name: game_year
         tests: [not_null]
 
+  - name: stg_statcast__pitching_events
+    description: Regular-season Statcast pitches with per-PA event flags for pitching aggregates.
+    columns:
+      - name: pitcher
+        tests: [not_null]
+      - name: game_year
+        tests: [not_null]
+
   - name: stg_statcast__games
     description: One row per game_pk from warehouse Statcast pitch data.
     columns:

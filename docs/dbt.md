@@ -13,7 +13,7 @@ dbt paths live under `dbt/` so they do not collide with the Python package `mode
 | `dbt/models/marts/` | Consumer-facing tables; default `materialized_view` (`games` is a table) |
 | `dbt/macros/get_season_year.sql` | Current calendar year, or `--vars '{"season_year": 2025}'` |
 
-The mart `current_season_batting_stats` replaces the warehouse object of the same name listed in `etl_scripts/materialized_views.py`.
+The marts `current_season_batting_stats` and `current_season_pitching_stats` replace warehouse objects of the same names listed in `etl_scripts/materialized_views.py`.
 
 ## Setup
 
@@ -53,14 +53,19 @@ The mart `current_season_batting_stats` replaces the warehouse object of the sam
 ## Commands
 
 ```bash
-# Build the current-season mart (creates/refreshes the materialized view)
+# Build the current-season marts (creates/refreshes materialized views + upstream staging/intermediate)
 uv run dbt build --selector post_statcast_ingest
+
+# Build one mart and its upstream deps (required on first run or after adding models)
+uv run dbt build --select current_season_pitching_stats+
 
 # Compile SQL without touching the warehouse
 uv run dbt compile --select current_season_batting_stats
+uv run dbt compile --select current_season_pitching_stats
 
 # Preview rows (needs warehouse access)
 uv run dbt show --select current_season_batting_stats --limit 20
+uv run dbt show --select current_season_pitching_stats --limit 20
 ```
 
 ## Prefect integration

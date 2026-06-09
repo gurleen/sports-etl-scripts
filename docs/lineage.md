@@ -126,6 +126,7 @@ flowchart BT
 
   stg_games[stg_statcast__games]
   stg_bat[stg_statcast__batting_events]
+  stg_pit[stg_statcast__pitching_events]
   games[games]
   game_cov[game_coverage]
   daily_cov[daily_game_coverage]
@@ -137,18 +138,26 @@ flowchart BT
   int_lrc[int_batting__league_wrc]
   int_tq[int_batting__team_qualifiers]
   batting[current_season_batting_stats]
+  int_pit_tot[int_pitching__player_totals]
+  int_pit_rate[int_pitching__rate_stats]
+  pitching[current_season_pitching_stats]
 
   statcast --> stg_games --> games
   statcast --> stg_bat --> int_tot --> int_rate --> int_adv
+  statcast --> stg_pit --> int_pit_tot --> int_pit_rate --> pitching
   int_adv --> int_lrc
   int_adv --> batting
   statcast --> int_tq --> int_adv
   weights --> int_rate
   weights --> int_adv
+  weights --> int_pit_rate
   weights --> batting
   players --> int_rate
+  players --> int_pit_rate
   players --> batting
+  players --> pitching
   teams --> int_adv
+  teams --> pitching
   park --> batting
   games --> game_cov
   schedule --> game_cov

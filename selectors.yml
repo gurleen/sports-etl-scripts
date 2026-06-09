@@ -4,6 +4,7 @@ selectors:
     definition:
       method: tag
       value: post_statcast_ingest
+      parents: true
 
   - name: post_statcast_extra_ingest
     description: Marts that join statcast_extra (rebuild after Savant /gf ingest).
