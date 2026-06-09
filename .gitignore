@@ -12,6 +12,9 @@ wheels/
 # Local secrets (use for docker compose DATABASE_URL, etc.)
 .env
 
+# Local data artifacts (Retrosheet cache + generated Parquet)
+data/
+
 # dbt
 target/
 dbt_packages/
