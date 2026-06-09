@@ -314,6 +314,8 @@ sources:
             data_type: integer
           - name: launch_speed_angle
             data_type: integer
+          - name: miss_distance
+            data_type: double precision
           - name: at_bat_number
             data_type: integer
           - name: pitch_number

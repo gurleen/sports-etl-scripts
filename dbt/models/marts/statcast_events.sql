@@ -1,3 +1,4 @@
+-- All public.statcast columns (including miss_distance) via s.*.
 select
     s.*,
     e.play_id,

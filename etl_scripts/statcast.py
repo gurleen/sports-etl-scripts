@@ -202,6 +202,48 @@ def load_data_to_db(
     return total
 
 
+def _read_csv_columns(filename: str) -> list[str]:
+    with open(filename, newline="", encoding="utf-8") as f:
+        return next(csv.reader(f))
+
+
+def get_statcast_table_columns(
+    database_url: str | None = None,
+    *,
+    table_name: str = STATCAST_TABLE_NAME,
+) -> list[str]:
+    """Column names on ``statcast`` (or ``table_name``), in ordinal order."""
+    url = database_url or get_database_url()
+    stmt = text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = :table_name
+        ORDER BY ordinal_position
+        """
+    )
+    engine = create_engine(url)
+    with engine.connect() as conn:
+        rows = conn.execute(stmt, {"table_name": table_name}).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def compare_statcast_columns(
+    csv_path: str,
+    *,
+    database_url: str | None = None,
+    table_name: str = STATCAST_TABLE_NAME,
+) -> dict[str, list[str]]:
+    """Compare a sample CSV header to the warehouse table, ignoring deprecated Statcast fields."""
+    csv_cols = set(_read_csv_columns(csv_path)) - set(_DEPRECATED_COLUMNS)
+    db_cols = set(get_statcast_table_columns(database_url, table_name=table_name))
+    return {
+        "new_in_csv": sorted(csv_cols - db_cols),
+        "only_in_db": sorted(db_cols - csv_cols),
+    }
+
+
 def write_statcast_csv(rows: Sequence[dict[str, Any]], filename: str) -> None:
     """Write Statcast dict rows to CSV (header from union of keys)."""
     data = list(rows)

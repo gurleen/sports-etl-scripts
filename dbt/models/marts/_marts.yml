@@ -56,6 +56,7 @@ models:
       Pitch-level Statcast rows enriched with Savant gamefeed fields from statcast_extra.
       Joined on game_pk, at_bat_number (= ab_number), and pitch_number.
     config:
+      enabled: false  # TEMP: re-enable after miss_distance backfill / MV rebuild
       tags: ["post_statcast_extra_ingest"]
     tests:
       - dbt_utils.unique_combination_of_columns:
@@ -73,6 +74,8 @@ models:
         tests: [not_null]
       - name: has_statcast_extra
         tests: [not_null]
+      - name: miss_distance
+        description: Distance (inches) between the pitch and the bat at the closest point of the swing path.
 
   - name: abs_challenges
     description: >

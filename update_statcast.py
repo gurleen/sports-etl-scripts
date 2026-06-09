@@ -7,6 +7,7 @@ from loguru import logger
 
 from etl_scripts.statcast import (
     EARLIEST_DATA_DATE,
+    compare_statcast_columns,
     get_database_url,
     get_statcast_data,
     load_data_to_db,
@@ -72,6 +73,35 @@ def update_recent(days: int = 1):
     data = get_statcast_data(start_date, today)
     load_data_to_db(data, database_url=url)
     logger.info("Recent update completed")
+
+
+@app.command()
+def write_recent(filename: str, days: int = 1):
+    today = datetime.today()
+    start_date = today - timedelta(days=days)
+    data = get_statcast_data(start_date, today)
+    write_statcast_csv(data, filename)
+    logger.info("Recent data written to {}", filename)
+
+
+@app.command()
+def compare_columns(
+    filename: str = typer.Argument(..., help="Sample Statcast CSV (e.g. from write-recent)."),
+):
+    result = compare_statcast_columns(filename)
+    new_cols = result["new_in_csv"]
+    if new_cols:
+        logger.warning("Columns in CSV but not in database ({}): {}", len(new_cols), ", ".join(new_cols))
+        raise typer.Exit(code=1)
+    only_in_db = result["only_in_db"]
+    if only_in_db:
+        logger.info(
+            "No new CSV columns. Database has {} column(s) not in this sample: {}",
+            len(only_in_db),
+            ", ".join(only_in_db),
+        )
+    else:
+        logger.info("CSV columns match the database (deprecated Statcast fields ignored).")
 
 
 @app.command()
