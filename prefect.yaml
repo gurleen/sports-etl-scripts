@@ -98,3 +98,32 @@ deployments:
       sport_id: 1
     work_pool:
       name: etl-pool
+
+  - name: mlbam-pbp-update-recent
+    description: MLB Stats API play-by-play for recently-finalized games into retrosheet_plays (source='mlbam'). Nightly.
+    tags:
+      - mlb
+      - pbp
+    schedule:
+      cron: "30 10 * * *"
+      timezone: UTC
+    entrypoint: flows/mlbam_pbp_flow.py:mlbam_pbp_update_recent
+    parameters:
+      days: 3
+      year: null
+      write_baserunning: true
+    work_pool:
+      name: etl-pool
+
+  - name: mlbam-pbp-ingest-year
+    description: MLB Stats API play-by-play for one season into retrosheet_plays (source='mlbam'). Override `year`; `reload=true` re-fetches all games.
+    tags:
+      - mlb
+      - pbp
+    entrypoint: flows/mlbam_pbp_flow.py:mlbam_pbp_ingest_year_flow
+    parameters:
+      year: 2026
+      reload: false
+      write_baserunning: true
+    work_pool:
+      name: etl-pool

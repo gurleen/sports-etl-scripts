@@ -77,8 +77,18 @@ class _StatsApiClient(BaseApiClient):
         return ScheduleResponse.model_validate(payload)
 
     def get_game(self, game_pk: int) -> Any:
-        """Live feed box score / game metadata for ``game_pk``."""
-        raise NotImplementedError
+        """``GET /game/{game_pk}/feed/live`` — full live feed (play-by-play).
+
+        The live feed lives on the ``v1.1`` API; the rest of this client targets
+        ``v1``, so we resolve the version per call.
+        """
+        live_base = self.base_url.replace("/api/v1", "/api/v1.1")
+        saved = self.base_url
+        try:
+            self.base_url = live_base
+            return self.get_json(f"/game/{game_pk}/feed/live")
+        finally:
+            self.base_url = saved
 
 
 class _SavantClient(BaseApiClient):
