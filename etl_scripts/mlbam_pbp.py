@@ -14,7 +14,9 @@ exact ERA maps directly (no ``tur`` redistribution needed, unlike Retrosheet).
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Any, Iterable, Sequence
 
@@ -99,9 +101,11 @@ _BASERUNNING_FLAG: dict[str, str] = {
     "balk": "balk",
     "forced_balk": "balk",
     "defensive_indifference": "defensive_indifference",
+    "defensive_indiff": "defensive_indifference",  # the feed's abbreviated form
     "other_advance": "other_advance",
     "runner_double_play": "other_advance",
     "stolen_base": "other_advance",
+    "error": "other_advance",  # runner advance/out on an error (non-PA action)
 }
 
 _SLOT_BY_ORIGIN = {None: "b", "1B": "1", "2B": "2", "3B": "3"}
@@ -122,7 +126,7 @@ _NONE_COLS = {
     "site", "score_bat", "score_pit", "batter_mlbam", "batter_retro",
     "pitcher_mlbam", "pitcher_retro", "bat_hand", "bat_side", "pit_hand",
     "lineup_pos", "bat_field_pos", "count_balls", "count_strikes", "hit_type",
-    "hit_location",
+    "hit_location", "on_1b", "on_2b", "on_3b",
 }
 for _s in ("b", "1", "2", "3"):
     _NONE_COLS |= {f"run_{_s}_runner_retro", f"run_{_s}_runner_mlbam",
@@ -188,6 +192,26 @@ def _runner_slots(row: dict[str, Any], movements: Sequence[dict[str, Any]]) -> N
     row["team_unearned_runs"] = team_unearned
 
 
+def _advance_bases(
+    bases: tuple[bool, bool, bool], movements: Sequence[dict[str, Any]]
+) -> tuple[bool, bool, bool]:
+    """Apply runner movements to a base-occupancy tuple (clear origins, then set ends).
+
+    Used to carry base state through mid-PA events (steals, WP) so the PA-completion
+    row reflects runners that advanced into scoring position during the at-bat.
+    """
+    on = {"1B": bases[0], "2B": bases[1], "3B": bases[2]}
+    for r in movements:
+        o = (r.get("movement") or {}).get("originBase")
+        if o in on:
+            on[o] = False
+    for r in movements:
+        e = (r.get("movement") or {}).get("end")
+        if e in on:
+            on[e] = True
+    return (on["1B"], on["2B"], on["3B"])
+
+
 def _apply_br_flags(row: dict[str, Any], movements: Sequence[dict[str, Any]]) -> None:
     """Set baserunning flag columns from *each* runner movement's eventType.
 
@@ -210,6 +234,8 @@ class _GameState:
         self.half_key: tuple[int, str] | None = None
         self.away_score = 0
         self.home_score = 0
+        # Base occupancy at the start of the current play (reset each half-inning).
+        self.bases = (False, False, False)
 
     def next_play_number(self) -> int:
         self.play_number += 1
@@ -220,6 +246,7 @@ class _GameState:
         if key != self.half_key:
             self.half_key = key
             self.cur_outs = 0
+            self.bases = (False, False, False)
 
 
 def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -260,18 +287,18 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
         for r in runners:
             runners_by_idx.setdefault(r.get("details", {}).get("playIndex"), []).append(r)
 
-        # Baserunning action events (in playEvent order) -> pa=0 rows.
+        # Non-pitch action events (in playEvent order). Every action's movements
+        # advance base state (steals, DI, runner_placed ghost runner, errors), so a
+        # later same-play PA row sees the right base state; recognized baserunning
+        # events also get a pa=0 row. action_indices keeps these movements out of
+        # the terminal PA's run/out attribution.
+        action_items: list[tuple[Any, str | None]] = []
         action_indices: set[Any] = set()
-        baserunning_events: list[tuple[int, str, str]] = []  # (playIndex, eventType, flag)
         for e in p.get("playEvents", []):
             if e.get("isPitch") or e.get("type") != "action":
                 continue
-            et = e.get("details", {}).get("eventType")
-            flag = _BASERUNNING_FLAG.get(et)
-            if flag is None:
-                continue
             action_indices.add(e.get("index"))
-            baserunning_events.append((e.get("index"), et, flag))
+            action_items.append((e.get("index"), e.get("details", {}).get("eventType")))
 
         def base_row(pn: int) -> dict[str, Any]:
             row = _blank_row()
@@ -282,6 +309,7 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
                 bat_team=bat_team, pit_team=pit_team, site=site,
                 batter_mlbam=batter_id, pitcher_mlbam=pitcher_id,
                 bat_hand=bat_side, bat_side=bat_side, pit_hand=pit_hand,
+                on_1b=state.bases[0], on_2b=state.bases[1], on_3b=state.bases[2],
             )
             return row
 
@@ -297,27 +325,45 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
             else:
                 state.home_score += scored
 
-        # Emit baserunning (pa=0) rows first, in order.
-        for idx, et, flag in baserunning_events:
-            pn = state.next_play_number()
-            row = base_row(pn)
-            row[flag] = 1
-            row["event_raw"] = et
-            row["outs_pre"] = state.cur_outs
+        # Process actions in order: emit pa=0 rows for recognized baserunning
+        # events, and advance base state for *every* action.
+        for idx, et in action_items:
             mvs = runners_by_idx.get(idx, [])
-            _apply_br_flags(row, mvs)  # capture all runners (e.g. double steals)
-            _runner_slots(row, mvs)
-            state.cur_outs += row["outs_on_play"]
-            row["outs_post"] = state.cur_outs
-            set_scores(row)
-            play_rows.append(row)
-            br_rows.extend(_baserunning_event_rows(row, et, pitcher_id, mvs))
+            if et == "runner_placed":
+                # Extra-innings automatic runner: placed on 2nd base, with no
+                # runner movement in the feed — so set the base directly.
+                state.bases = (state.bases[0], True, state.bases[2])
+                continue
+            flag = _BASERUNNING_FLAG.get(et)
+            if flag is not None:
+                pn = state.next_play_number()
+                row = base_row(pn)
+                row[flag] = 1
+                row["event_raw"] = et
+                row["outs_pre"] = state.cur_outs
+                _apply_br_flags(row, mvs)  # capture all runners (e.g. double steals)
+                _runner_slots(row, mvs)
+                state.cur_outs += row["outs_on_play"]
+                row["outs_post"] = state.cur_outs
+                set_scores(row)
+                play_rows.append(row)
+                br_rows.extend(_baserunning_event_rows(row, et, pitcher_id, mvs))
+            # Carry base state forward so a later same-play PA row sees runners
+            # that advanced (steal, DI, ghost runner placed in extras, etc.).
+            state.bases = _advance_bases(state.bases, mvs)
 
         # Emit the terminal plate-appearance (pa=1) row.
         result = p.get("result", {})
         et = result.get("eventType")
         ev = result.get("event")
+        # Base occupancy after this play (-> the next play's pre-state).
+        post_bases = (
+            bool(matchup.get("postOnFirst")),
+            bool(matchup.get("postOnSecond")),
+            bool(matchup.get("postOnThird")),
+        )
         if ev in _SKIP_RESULT_EVENTS:
+            state.bases = post_bases
             continue  # advisory noise, not a play
         if (et in _BASERUNNING_FLAG and et not in _PA_FLAGS) or ev in _RUNNER_OUT_EVENTS:
             # Play ended on a baserunning out mid-AB (inning-ending CS or "Runner Out"):
@@ -335,6 +381,7 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
             set_scores(row)
             play_rows.append(row)
             br_rows.extend(_baserunning_event_rows(row, et, pitcher_id, terminal_mvs))
+            state.bases = post_bases
             continue
 
         pn = state.next_play_number()
@@ -368,6 +415,7 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
         play_rows.append(row)
         if br_mvs:
             br_rows.extend(_baserunning_event_rows(row, None, pitcher_id, br_mvs))
+        state.bases = post_bases
 
     return play_rows, br_rows
 
@@ -491,22 +539,38 @@ def load_game(
     *,
     database_url: str | None = None,
     client: MlbApiClient | None = None,
+    conn: "psycopg2.extensions.connection | None" = None,
     write_baserunning: bool = True,
+    ensure_baserunning_table: bool | None = None,
 ) -> dict[str, int]:
-    """Fetch one game, parse it, and replace its ``mlbam`` rows in both tables."""
-    url = database_url or get_database_url()
+    """Fetch one game, parse it, and replace its ``mlbam`` rows in both tables.
+
+    Pass an open ``conn`` and ``client`` to reuse them across games (avoids a fresh
+    connection per game). When ``conn`` is omitted a connection is opened and closed
+    for this call. ``ensure_baserunning_table`` defaults to True only when this call
+    owns the connection — bulk callers create the table once up front instead, so
+    concurrent workers don't race on ``CREATE TABLE``.
+    """
     cl = client or MlbApiClient()
     feed = cl.stats.get_game(game_pk)
     play_rows, br_rows = parse_game(feed)
     game_id = str(game_pk)
-    with psycopg2.connect(url) as conn:
-        with conn.cursor() as cur:
+    own_conn = conn is None
+    c = conn or psycopg2.connect(database_url or get_database_url())
+    if ensure_baserunning_table is None:
+        ensure_baserunning_table = own_conn
+    try:
+        with c.cursor() as cur:
             n_plays = _replace_game_rows(cur, TABLE_NAME, SCHEMA_COLUMNS, game_id, play_rows)
             n_br = 0
             if write_baserunning:
-                cur.execute(baserunning_ddl())
+                if ensure_baserunning_table:
+                    cur.execute(baserunning_ddl())
                 n_br = _replace_game_rows(cur, BASERUNNING_TABLE, BASERUNNING_COLUMNS, game_id, br_rows)
-        conn.commit()
+        c.commit()
+    finally:
+        if own_conn:
+            c.close()
     return {"plays": n_plays, "baserunning": n_br}
 
 
@@ -549,30 +613,82 @@ def load_games(
     *,
     database_url: str | None = None,
     write_baserunning: bool = True,
+    max_workers: int = 8,
     progress_every: int = 50,
     on_progress: "Callable[[int, int, int, int], None] | None" = None,
 ) -> dict[str, Any]:
-    """Load many games, continuing past per-game failures.
+    """Load many games concurrently, continuing past per-game failures.
 
-    ``on_progress(done, total, loaded, failed)`` is called every ``progress_every``
-    games (and at the end) for UI/log reporting.
+    Each of the ``max_workers`` threads keeps its own DB connection and API client
+    (so connections are reused across games and the per-game open cost is paid once
+    per worker, not once per game). Bounded so the loader can't saturate the DB.
+    ``on_progress(done, total, loaded, failed)`` fires every ``progress_every`` games.
     """
     url = database_url or get_database_url()
-    client = MlbApiClient()
     pks = list(game_pks)
+    if not pks:
+        logger.info("mlbam pbp load: no games to load")
+        return {"games_targeted": 0, "games_loaded": 0, "plays_written": 0,
+                "baserunning_written": 0, "games_failed": 0, "failures": []}
+
+    # Create the baserunning table once up front so concurrent workers don't race
+    # on CREATE TABLE (which can deadlock in Postgres).
+    if write_baserunning:
+        with psycopg2.connect(url) as c0:
+            with c0.cursor() as cur:
+                cur.execute(baserunning_ddl())
+            c0.commit()
+
+    tls = threading.local()
+    conns: list[Any] = []
+    conns_lock = threading.Lock()
+
+    def _ctx():
+        if not hasattr(tls, "conn"):
+            tls.conn = psycopg2.connect(url)
+            tls.client = MlbApiClient()  # per-thread: get_game mutates base_url
+            with conns_lock:
+                conns.append(tls.conn)
+        return tls.conn, tls.client
+
+    def _work(gp: int):
+        conn, client = _ctx()
+        try:
+            res = load_game(
+                gp, client=client, conn=conn,
+                write_baserunning=write_baserunning, ensure_baserunning_table=False,
+            )
+            return gp, res, None
+        except Exception as exc:  # noqa: BLE001 - isolate per-game failures
+            try:
+                conn.rollback()  # clear the aborted txn so the worker can continue
+            except Exception:
+                pass
+            return gp, None, str(exc)
+
     ok = plays = br = 0
     failures: list[tuple[int, str]] = []
-    for i, gp in enumerate(pks, 1):
-        try:
-            res = load_game(gp, database_url=url, client=client, write_baserunning=write_baserunning)
-            plays += res["plays"]; br += res["baserunning"]; ok += 1
-        except Exception as exc:  # noqa: BLE001 - keep loading remaining games
-            logger.exception("Failed to load game_pk={}", gp)
-            failures.append((gp, str(exc)))
-        if progress_every and (i % progress_every == 0 or i == len(pks)):
-            logger.info("Loaded {}/{} games ({} rows)", i, len(pks), plays)
-            if on_progress is not None:
-                on_progress(i, len(pks), ok, len(failures))
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_work, gp) for gp in pks]
+            for i, fut in enumerate(as_completed(futures), 1):
+                gp, res, err = fut.result()
+                if err is not None:
+                    logger.error("Failed to load game_pk={}: {}", gp, err)
+                    failures.append((gp, err))
+                else:
+                    plays += res["plays"]; br += res["baserunning"]; ok += 1
+                if progress_every and (i % progress_every == 0 or i == len(pks)):
+                    logger.info("Loaded {}/{} games ({} rows)", i, len(pks), plays)
+                    if on_progress is not None:
+                        on_progress(i, len(pks), ok, len(failures))
+    finally:
+        for c in conns:
+            try:
+                c.close()
+            except Exception:
+                pass
+
     summary = {
         "games_targeted": len(pks), "games_loaded": ok, "plays_written": plays,
         "baserunning_written": br, "games_failed": len(failures),
@@ -590,6 +706,7 @@ def load_season(
     start_date: date | None = None,
     end_date: date | None = None,
     write_baserunning: bool = True,
+    max_workers: int = 8,
     on_progress: "Callable[[int, int, int, int], None] | None" = None,
 ) -> dict[str, Any]:
     """Load all (or only-missing) Final regular-season games for ``season``."""
@@ -598,7 +715,9 @@ def load_season(
         season, database_url=url, only_missing=only_missing,
         start_date=start_date, end_date=end_date,
     )
-    logger.info("mlbam pbp season {}: {} games to load (only_missing={})", season, len(pks), only_missing)
+    logger.info("mlbam pbp season {}: {} games to load (only_missing={}, workers={})",
+                season, len(pks), only_missing, max_workers)
     return load_games(
-        pks, database_url=url, write_baserunning=write_baserunning, on_progress=on_progress
+        pks, database_url=url, write_baserunning=write_baserunning,
+        max_workers=max_workers, on_progress=on_progress,
     ) | {"season": season}

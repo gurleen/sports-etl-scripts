@@ -29,9 +29,12 @@ def season(
     year: int,
     reload: bool = typer.Option(False, help="Re-fetch every game (default: only games not yet loaded)."),
     no_baserunning: bool = typer.Option(False, help="Skip the baserunning_events table."),
+    workers: int = typer.Option(8, help="Concurrent fetch/load workers (each its own DB connection)."),
 ):
     """Load all Final regular-season games for a season."""
-    summary = load_season(year, only_missing=not reload, write_baserunning=not no_baserunning)
+    summary = load_season(
+        year, only_missing=not reload, write_baserunning=not no_baserunning, max_workers=workers
+    )
     logger.info("Season {} load complete: {}", year, {k: v for k, v in summary.items() if k != "failures"})
 
 
@@ -40,6 +43,7 @@ def update_recent(
     days: int = typer.Option(3, help="Re-fetch Final games from the last N days (box scores get corrected)."),
     year: int | None = typer.Option(None, help="Season (defaults to current year)."),
     no_baserunning: bool = typer.Option(False, help="Skip the baserunning_events table."),
+    workers: int = typer.Option(8, help="Concurrent fetch/load workers (each its own DB connection)."),
 ):
     """Re-fetch recently-finalized games (idempotent replace)."""
     today = date.today()
@@ -47,7 +51,7 @@ def update_recent(
     start = today - timedelta(days=days)
     summary = load_season(
         y, only_missing=False, start_date=start, end_date=today,
-        write_baserunning=not no_baserunning,
+        write_baserunning=not no_baserunning, max_workers=workers,
     )
     logger.info("Recent load ({}..{}) complete: {}", start, today, {k: v for k, v in summary.items() if k != "failures"})
 

@@ -12,4 +12,6 @@ etl_scripts:
       password: "{{ env_var('POSTGRES_PASSWORD') }}"
       dbname: "{{ env_var('POSTGRES_DB', 'postgres') }}"
       schema: baseball
-      threads: 4
+      # Build one model at a time: each pbp mart is a heavy DuckDB aggregation and
+      # the Postgres VPS only has 2 GB RAM, so concurrent models OOM/thrash.
+      threads: 1

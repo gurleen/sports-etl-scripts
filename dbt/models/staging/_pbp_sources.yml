@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: pbp
+    description: >
+      Play-by-play fact tables loaded outside dbt: Retrosheet historical
+      (source='retrosheet') and MLB Stats API current/recent seasons
+      (source='mlbam'), in one shared play-grain schema.
+    schema: public
+    tables:
+      - name: retrosheet_plays
+        description: One row per play (PA + baserunning events) across all loaded seasons.
+        columns:
+          - name: source
+            tests: [not_null]
+          - name: game_id
+            tests: [not_null]
+          - name: season
+            tests: [not_null]
+      - name: baserunning_events
+        description: One row per runner movement on a baserunning play (mlbam source).

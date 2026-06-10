@@ -150,6 +150,10 @@ PG_SCHEMA: list[tuple[str, str]] = [
     ("outs_pre", "SMALLINT"),
     ("outs_post", "SMALLINT"),
     ("outs_on_play", "SMALLINT"),
+    # --- base state at start of play (for RISP / situational splits) ---------
+    ("on_1b", "BOOLEAN"),
+    ("on_2b", "BOOLEAN"),
+    ("on_3b", "BOOLEAN"),
     # --- runs (play level) --------------------------------------------------
     ("runs_on_play", "SMALLINT"),
     ("earned_runs", "SMALLINT"),
@@ -281,6 +285,10 @@ def build_select_exprs(id_map: dict[str, int]) -> list[pl.Expr]:
         _i("outs_pre").alias("outs_pre"),
         _i("outs_post").alias("outs_post"),
         (_i("outs_post").fill_null(0) - _i("outs_pre").fill_null(0)).alias("outs_on_play"),
+        # base state at start of play (runner present on each base)
+        _txt("br1_pre").is_not_null().alias("on_1b"),
+        _txt("br2_pre").is_not_null().alias("on_2b"),
+        _txt("br3_pre").is_not_null().alias("on_3b"),
         # runs (play level)
         _i("runs").alias("runs_on_play"),
         # Pitcher-earned runs (the MLB-rules ERA basis) = team-earned `er` plus

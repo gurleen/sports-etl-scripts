@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: batting_stats_season
+    description: Standard + sabermetric batting line per player per season (all seasons, retrosheet + mlbam).
+    columns:
+      - name: player_id
+        tests: [not_null]
+      - name: season
+        tests: [not_null]
+  - name: pitching_stats_season
+    description: Standard + sabermetric pitching line per pitcher per season (all seasons).
+    columns:
+      - name: player_id
+        tests: [not_null]
+      - name: season
+        tests: [not_null]
+  - name: batting_stats_monthly
+    description: Batting line per player per season per calendar month.
+    columns:
+      - name: player_id
+        tests: [not_null]
+  - name: pitching_stats_monthly
+    description: Pitching line per pitcher per season per calendar month.
+    columns:
+      - name: player_id
+        tests: [not_null]
+  - name: batting_splits_season
+    description: >
+      Tidy-long batting splits per player x season x split_type x split_value.
+      split_type in (overall, vs_hand, home_away, outs, count, inning, late_close, base_state).
+      RISP = base_state in ('risp','loaded').
+    columns:
+      - name: player_id
+        tests: [not_null]
+      - name: split_type
+        tests: [not_null]
+  - name: pitching_splits_season
+    description: Tidy-long pitching splits per pitcher x season x split_type x split_value.
+    columns:
+      - name: player_id
+        tests: [not_null]
+      - name: split_type
+        tests: [not_null]
