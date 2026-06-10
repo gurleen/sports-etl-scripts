@@ -92,6 +92,9 @@ def load(
     parquet: Path = typer.Argument(..., help="Parquet file produced by `build`."),
     table_name: str = typer.Option(TABLE_NAME, help="Target table name."),
     create_index: bool = typer.Option(True, help="Create secondary indexes after loading."),
+    replace_source: str | None = typer.Option(
+        None, help="Delete existing rows with this source (e.g. 'retrosheet') before loading."
+    ),
 ):
     """Create the table, load a Parquet into it, then build indexes.
 
@@ -102,7 +105,7 @@ def load(
 
     url = get_database_url()
     ensure_table(url, table_name=table_name)
-    rows = load_parquet_to_db(parquet, url, table_name=table_name)
+    rows = load_parquet_to_db(parquet, url, table_name=table_name, replace_source=replace_source)
     if create_index:
         create_indexes(url, table_name=table_name)
     logger.info("Load complete: {} rows into {}", rows, table_name)

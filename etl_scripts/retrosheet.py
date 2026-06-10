@@ -283,44 +283,32 @@ def build_select_exprs(id_map: dict[str, int]) -> list[pl.Expr]:
         (_i("outs_post").fill_null(0) - _i("outs_pre").fill_null(0)).alias("outs_on_play"),
         # runs (play level)
         _i("runs").alias("runs_on_play"),
-        _i("er").alias("earned_runs"),
-        (_i("runs").fill_null(0) - _i("er").fill_null(0)).alias("unearned_runs"),
-        _i("tur").alias("team_unearned_runs"),
+        # Pitcher-earned runs (the MLB-rules ERA basis) = team-earned `er` plus
+        # `tur`, the runs unearned to the *team* but charged earned to a relief
+        # pitcher (MLB Rule 9.16). Retrosheet encodes both, so this matches MLB's
+        # official per-pitcher earned runs exactly — no MLB API needed.
+        (_i("er").fill_null(0) + _i("tur").fill_null(0)).alias("earned_runs"),
+        # Pitcher-unearned runs = runs not earned to the charged pitcher.
+        (_i("runs").fill_null(0) - _i("er").fill_null(0) - _i("tur").fill_null(0)).alias("unearned_runs"),
+        # Team-unearned runs (unearned to the team) = runs - team-earned `er`.
+        (_i("runs").fill_null(0) - _i("er").fill_null(0)).alias("team_unearned_runs"),
         _i("rbi").alias("rbi"),
     ]
 
-    # Per-run responsible-pitcher attribution (the basis for exact ERA).
-    #
-    # A run is unearned to the pitcher if its `ur*` flag is set OR it is one of
-    # the play's `tur` team-unearned runs (reconstructed from team errors and not
-    # tied to a specific runner). The `ur*` flags alone undercount unearned by
-    # `tur`, so we flip the first `tur` otherwise-earned slots to unearned. This
-    # makes the per-slot earned flags sum exactly to Retrosheet's play-level `er`,
-    # so summing `run_*_earned` by `run_*_pitcher` yields official earned runs.
-    tur = _i("tur").fill_null(0)
-    naive_earned: dict[str, pl.Expr] = {}
-    for slot, (run_c, _prun_c, ur_c) in _RUN_SLOTS.items():
-        scored = _txt(run_c).is_not_null()
-        naive_earned[slot] = (
-            pl.when(scored).then(pl.lit(1) - _i(ur_c).fill_null(0)).otherwise(pl.lit(0)).cast(pl.Int16)
-        )
-    running = pl.lit(0).cast(pl.Int16)
-    earned_flag: dict[str, pl.Expr] = {}
-    for slot in _RUN_SLOTS:
-        running = running + naive_earned[slot]  # earned slots seen so far (inclusive)
-        # Keep earned only once we are past the first `tur` earned slots.
-        earned_flag[slot] = ((naive_earned[slot] == 1) & (running > tur)).cast(pl.Int16)
-
-    for slot, (run_c, prun_c, _ur_c) in _RUN_SLOTS.items():
+    # Per-run responsible-pitcher attribution (the basis for exact ERA). A scored
+    # run is earned to its responsible pitcher unless its `ur*` flag is set; summed
+    # over slots this equals `er + tur` (pitcher-earned), matching MLB Rule 9.16.
+    for slot, (run_c, prun_c, ur_c) in _RUN_SLOTS.items():
         runner = _txt(run_c)
         scored = runner.is_not_null()
+        earned = pl.when(scored).then(pl.lit(1) - _i(ur_c).fill_null(0)).otherwise(pl.lit(0)).cast(pl.Int16)
         # Responsible pitcher: explicit `prun*` if present, else the facing pitcher.
         resp_retro = pl.when(scored).then(pl.coalesce([_txt(prun_c), _txt("pitcher")])).otherwise(None)
         exprs.extend(
             [
                 runner.alias(f"run_{slot}_runner_retro"),
                 _mlbam(runner, id_map).alias(f"run_{slot}_runner_mlbam"),
-                earned_flag[slot].alias(f"run_{slot}_earned"),
+                earned.alias(f"run_{slot}_earned"),
                 resp_retro.alias(f"run_{slot}_pitcher_retro"),
                 _mlbam(resp_retro, id_map).alias(f"run_{slot}_pitcher_mlbam"),
             ]
@@ -568,13 +556,27 @@ def load_parquet_to_db(
     database_url: str,
     *,
     table_name: str = TABLE_NAME,
+    replace_source: str | None = None,
 ) -> int:
     """Append a Parquet dataset into ``table_name`` one season at a time (bounded memory).
 
     Loads via Polars + ADBC (``adbc-driver-postgresql``). Returns rows written.
     The table must already exist (see :func:`ensure_table`); column order/types
     match :data:`PG_SCHEMA`.
+
+    ``replace_source`` first deletes existing rows with that ``source`` value (e.g.
+    ``"retrosheet"``) so a corrected rebuild cleanly replaces the prior load.
     """
+    if replace_source is not None:
+        import psycopg2
+
+        with psycopg2.connect(database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"DELETE FROM {table_name} WHERE source = %s", (replace_source,)
+                )
+            conn.commit()
+        logger.info("Deleted existing {} rows with source={!r}", table_name, replace_source)
     lf = pl.scan_parquet(parquet_path)
     seasons = lf.select(pl.col("season").unique()).collect().to_series().sort().to_list()
     total = 0

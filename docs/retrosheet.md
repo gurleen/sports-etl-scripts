@@ -61,12 +61,15 @@ the Polars projection and the DDL (kept in sync by
 Earned-run accounting is exact and charges runs to the **responsible** pitcher
 (correct for inherited runners), not whoever was facing the batter:
 
-- Play level: `runs_on_play`, `earned_runs` (= Retrosheet `er`, the official pitcher-earned total), `unearned_runs`, `team_unearned_runs`.
+- Play level: `runs_on_play`, `earned_runs` (**pitcher-earned, the MLB-rules ERA basis**), `unearned_runs` (pitcher-unearned), `team_unearned_runs`.
 - Per run, four "slots" (the batter + three baserunners) carry the scorer and the responsible pitcher: `run_{b,1,2,3}_runner_mlbam`, `run_{b,1,2,3}_pitcher_mlbam` (+ `_retro`), and `run_{b,1,2,3}_earned`.
 
-The per-slot `*_earned` flags are reconciled so they sum **exactly** to the
-play's `er` (the raw `ur*` flags undercount by `team_unearned_runs`, which we
-redistribute). Outs (innings pitched) belong to the facing pitcher; earned runs
+`earned_runs` is **`er + tur`**, not Retrosheet's `er` alone: `er` is runs earned
+to the *team*, while `tur` is the runs unearned to the team but charged earned to
+a relief pitcher (MLB Rule 9.16). Their sum is MLB's official per-pitcher earned
+total — verified to match MLB's Stats API exactly, so historical ERA needs no MLB
+API. Per-slot `*_earned` = scored runs whose `ur*` flag is unset, which sums to
+`er + tur`. Outs (innings pitched) belong to the facing pitcher; earned runs
 belong to the responsible pitcher — so exact ERA unpivots the four slots:
 
 ```sql
