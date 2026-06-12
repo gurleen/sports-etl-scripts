@@ -20,13 +20,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Any, Iterable, Sequence
 
-import psycopg2
 from loguru import logger
-from psycopg2 import sql
-from psycopg2.extras import execute_batch
 
 from api_clients import MlbApiClient
-from etl_scripts.retrosheet import SCHEMA_COLUMNS, TABLE_NAME
+from etl_scripts import db
+from etl_scripts.retrosheet import SCHEMA_COLUMNS, TABLE_NAME, full_ddl
 from etl_scripts.statcast import get_database_url
 
 SOURCE_LABEL = "mlbam"
@@ -225,6 +223,49 @@ def _apply_br_flags(row: dict[str, Any], movements: Sequence[dict[str, Any]]) ->
             row[flag] = 1
 
 
+def _player_bat_side(players: dict[str, Any], player_id: int) -> str | None:
+    """Look up a player's batting side from ``gameData.players``."""
+    info = players.get(f"ID{player_id}") or {}
+    return (info.get("batSide") or {}).get("code")
+
+
+def _batter_credit_915b(
+    play: dict[str, Any],
+    substitute_batter_id: int | None,
+    substitute_bat_side: str | None,
+    result_event_type: str | None,
+    players: dict[str, Any],
+) -> tuple[int | None, str | None]:
+    """Batter credited with a completed PA per MLB Official Rule 9.15(b).
+
+    When a batter leaves with two strikes and the substitute completes a
+    strikeout, charge the strikeout and at-bat to the first batter. Any other
+    PA completion is charged to the substitute (``matchup.batter``).
+    """
+    if result_event_type not in ("strikeout", "strikeout_double_play"):
+        return substitute_batter_id, substitute_bat_side
+    if substitute_batter_id is None:
+        return substitute_batter_id, substitute_bat_side
+
+    for e in play.get("playEvents", []):
+        if e.get("type") != "action":
+            continue
+        det = e.get("details") or {}
+        if det.get("eventType") != "offensive_substitution":
+            continue
+        sub_id = (e.get("player") or {}).get("id")
+        orig_id = (e.get("replacedPlayer") or {}).get("id")
+        if orig_id is None or sub_id != substitute_batter_id:
+            continue
+        if (e.get("position") or {}).get("type") != "Hitter":
+            continue
+        if (e.get("count") or {}).get("strikes") != 2:
+            continue
+        return orig_id, _player_bat_side(players, orig_id) or substitute_bat_side
+
+    return substitute_batter_id, substitute_bat_side
+
+
 class _GameState:
     """Running per-game counters: play number, half-inning outs, and score."""
 
@@ -262,6 +303,7 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
     site = gd.get("venue", {}).get("name")
     away_retro = MLB_TEAMID_TO_RETRO.get(gd["teams"]["away"]["id"])
     home_retro = MLB_TEAMID_TO_RETRO.get(gd["teams"]["home"]["id"])
+    players = gd.get("players", {})
 
     plays = feed["liveData"]["plays"]["allPlays"]
     state = _GameState()
@@ -386,6 +428,12 @@ def parse_game(feed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[st
 
         pn = state.next_play_number()
         row = base_row(pn)
+        credited_id, credited_side = _batter_credit_915b(
+            p, batter_id, bat_side, et, players,
+        )
+        row["batter_mlbam"] = credited_id
+        row["bat_hand"] = credited_side
+        row["bat_side"] = credited_side
         row["pa"] = 1
         row["rbi"] = int(result.get("rbi") or 0)
         row["event_raw"] = ev
@@ -520,18 +568,25 @@ def baserunning_ddl(table_name: str = BASERUNNING_TABLE) -> str:
 def _replace_game_rows(
     cur, table: str, columns: Sequence[str], game_id: str, rows: Sequence[dict[str, Any]]
 ) -> int:
-    cur.execute(
-        sql.SQL("DELETE FROM {} WHERE source = %s AND game_id = %s").format(sql.Identifier(table)),
-        (SOURCE_LABEL, game_id),
-    )
+    p = db.placeholder()
+    cur.execute(f'DELETE FROM "{table}" WHERE source = {p} AND game_id = {p}', (SOURCE_LABEL, game_id))
     if not rows:
         return 0
-    fields = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
-    placeholders = sql.SQL(", ").join(sql.Placeholder() * len(columns))
-    stmt = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(sql.Identifier(table), fields, placeholders)
+    fields = ", ".join(f'"{c}"' for c in columns)
+    placeholders = ", ".join([p] * len(columns))
+    stmt = f'INSERT INTO "{table}" ({fields}) VALUES ({placeholders})'
     tuples = [tuple(r.get(c) for c in columns) for r in rows]
-    execute_batch(cur, stmt.as_string(cur.connection), tuples, page_size=500)
+    db.insert_many(cur, stmt, tuples)
     return len(tuples)
+
+
+def _connect(database_url: str | None = None):
+    """Open a connection on the configured backend (DuckDB if ``ETL_DB_BACKEND=duckdb``)."""
+    if db.get_backend() == "duckdb":
+        return db.connect()
+    import psycopg2
+
+    return psycopg2.connect(database_url or get_database_url())
 
 
 def load_game(
@@ -539,7 +594,7 @@ def load_game(
     *,
     database_url: str | None = None,
     client: MlbApiClient | None = None,
-    conn: "psycopg2.extensions.connection | None" = None,
+    conn: Any = None,
     write_baserunning: bool = True,
     ensure_baserunning_table: bool | None = None,
 ) -> dict[str, int]:
@@ -556,17 +611,19 @@ def load_game(
     play_rows, br_rows = parse_game(feed)
     game_id = str(game_pk)
     own_conn = conn is None
-    c = conn or psycopg2.connect(database_url or get_database_url())
+    c = conn or _connect(database_url)
     if ensure_baserunning_table is None:
         ensure_baserunning_table = own_conn
     try:
-        with c.cursor() as cur:
-            n_plays = _replace_game_rows(cur, TABLE_NAME, SCHEMA_COLUMNS, game_id, play_rows)
-            n_br = 0
-            if write_baserunning:
-                if ensure_baserunning_table:
-                    cur.execute(baserunning_ddl())
-                n_br = _replace_game_rows(cur, BASERUNNING_TABLE, BASERUNNING_COLUMNS, game_id, br_rows)
+        cur = db.cursor(c)
+        if own_conn and db.get_backend() == "duckdb":
+            db.executescript(cur, full_ddl())
+        n_plays = _replace_game_rows(cur, TABLE_NAME, SCHEMA_COLUMNS, game_id, play_rows)
+        n_br = 0
+        if write_baserunning:
+            if ensure_baserunning_table:
+                db.executescript(cur, baserunning_ddl())
+            n_br = _replace_game_rows(cur, BASERUNNING_TABLE, BASERUNNING_COLUMNS, game_id, br_rows)
         c.commit()
     finally:
         if own_conn:
@@ -590,22 +647,30 @@ def list_final_regular_game_pks(
     With ``only_missing`` (default), skips games already loaded as ``mlbam`` rows.
     ``start_date`` / ``end_date`` restrict by ``official_date`` (recent re-fetch).
     """
-    url = database_url or get_database_url()
-    clauses = ["season_year = %s", "game_type = 'R'", "coded_game_state = 'F'"]
+    p = db.placeholder()
+    clauses = [f"season_year = {p}", "game_type = 'R'", "coded_game_state = 'F'"]
     params: list[Any] = [season]
     if start_date is not None:
-        clauses.append("official_date >= %s"); params.append(start_date)
+        clauses.append(f"official_date >= {p}"); params.append(start_date)
     if end_date is not None:
-        clauses.append("official_date <= %s"); params.append(end_date)
+        clauses.append(f"official_date <= {p}"); params.append(end_date)
     if only_missing:
         clauses.append(
             "NOT EXISTS (SELECT 1 FROM retrosheet_plays p "
             "WHERE p.source = 'mlbam' AND p.game_id = mlb_schedule.game_pk::text)"
         )
     q = f"SELECT game_pk FROM mlb_schedule WHERE {' AND '.join(clauses)} ORDER BY official_date, game_pk"
-    with psycopg2.connect(url) as conn, conn.cursor() as cur:
+    conn = _connect(database_url)
+    try:
+        cur = db.cursor(conn)
+        if db.get_backend() == "duckdb":
+            # Fresh DuckDB files start empty; ensure retrosheet_plays exists for the
+            # NOT EXISTS subquery (and the inserts load_games will run next).
+            db.executescript(cur, full_ddl())
         cur.execute(q, params)
         return [int(r[0]) for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 def load_games(
@@ -623,21 +688,33 @@ def load_games(
     (so connections are reused across games and the per-game open cost is paid once
     per worker, not once per game). Bounded so the loader can't saturate the DB.
     ``on_progress(done, total, loaded, failed)`` fires every ``progress_every`` games.
+
+    On the DuckDB backend (``ETL_DB_BACKEND=duckdb``), ``max_workers`` is forced to 1:
+    a single DuckDB file doesn't tolerate concurrent writers from multiple connections.
     """
-    url = database_url or get_database_url()
     pks = list(game_pks)
     if not pks:
         logger.info("mlbam pbp load: no games to load")
         return {"games_targeted": 0, "games_loaded": 0, "plays_written": 0,
                 "baserunning_written": 0, "games_failed": 0, "failures": []}
 
-    # Create the baserunning table once up front so concurrent workers don't race
-    # on CREATE TABLE (which can deadlock in Postgres).
-    if write_baserunning:
-        with psycopg2.connect(url) as c0:
-            with c0.cursor() as cur:
-                cur.execute(baserunning_ddl())
+    backend = db.get_backend()
+    if backend == "duckdb":
+        max_workers = 1
+
+    # Create the retrosheet_plays/baserunning tables once up front so concurrent
+    # workers don't race on CREATE TABLE (which can deadlock in Postgres).
+    if write_baserunning or backend == "duckdb":
+        c0 = _connect(database_url)
+        try:
+            cur0 = db.cursor(c0)
+            if backend == "duckdb":
+                db.executescript(cur0, full_ddl())
+            if write_baserunning:
+                db.executescript(cur0, baserunning_ddl())
             c0.commit()
+        finally:
+            c0.close()
 
     tls = threading.local()
     conns: list[Any] = []
@@ -645,7 +722,7 @@ def load_games(
 
     def _ctx():
         if not hasattr(tls, "conn"):
-            tls.conn = psycopg2.connect(url)
+            tls.conn = _connect(database_url)
             tls.client = MlbApiClient()  # per-thread: get_game mutates base_url
             with conns_lock:
                 conns.append(tls.conn)
@@ -710,14 +787,13 @@ def load_season(
     on_progress: "Callable[[int, int, int, int], None] | None" = None,
 ) -> dict[str, Any]:
     """Load all (or only-missing) Final regular-season games for ``season``."""
-    url = database_url or get_database_url()
     pks = list_final_regular_game_pks(
-        season, database_url=url, only_missing=only_missing,
+        season, database_url=database_url, only_missing=only_missing,
         start_date=start_date, end_date=end_date,
     )
     logger.info("mlbam pbp season {}: {} games to load (only_missing={}, workers={})",
                 season, len(pks), only_missing, max_workers)
     return load_games(
-        pks, database_url=url, write_baserunning=write_baserunning,
+        pks, database_url=database_url, write_baserunning=write_baserunning,
         max_workers=max_workers, on_progress=on_progress,
     ) | {"season": season}

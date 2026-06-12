@@ -15,3 +15,10 @@ etl_scripts:
       # Build one model at a time: each pbp mart is a heavy DuckDB aggregation and
       # the Postgres VPS only has 2 GB RAM, so concurrent models OOM/thrash.
       threads: 1
+    # Local DuckDB file for testing: same `public`-schema source layout as prod
+    # (load via ETL_DB_BACKEND=duckdb), marts build into the `baseball` schema.
+    local:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', 'dev.duckdb') }}"
+      schema: baseball
+      threads: 4

@@ -4,6 +4,49 @@ sources:
   - name: warehouse
     schema: public
     tables:
+      - name: baserunning_events
+        columns:
+          - name: source
+            data_type: text
+          - name: game_id
+            data_type: text
+          - name: play_number
+            data_type: integer
+          - name: event_seq
+            data_type: integer
+          - name: runner_mlbam
+            data_type: integer
+          - name: season
+            data_type: integer
+          - name: game_date
+            data_type: date
+          - name: inning
+            data_type: integer
+          - name: inning_topbot
+            data_type: text
+          - name: bat_home
+            data_type: boolean
+          - name: event_type
+            data_type: text
+          - name: start_base
+            data_type: text
+          - name: end_base
+            data_type: text
+          - name: is_out
+            data_type: boolean
+          - name: pitcher_mlbam
+            data_type: integer
+          - name: responsible_pitcher_mlbam
+            data_type: integer
+          - name: is_scoring
+            data_type: boolean
+          - name: earned
+            data_type: boolean
+          - name: team_unearned
+            data_type: boolean
+          - name: rbi
+            data_type: boolean
+
       - name: batting_logs
         columns:
           - name: game_date
@@ -180,6 +223,211 @@ sources:
           - name: bat_side
             data_type: text
 
+      - name: retrosheet_plays
+        columns:
+          - name: source
+            data_type: text
+          - name: game_id
+            data_type: text
+          - name: play_number
+            data_type: integer
+          - name: pbp_type
+            data_type: text
+          - name: game_date
+            data_type: date
+          - name: season
+            data_type: integer
+          - name: game_type
+            data_type: text
+          - name: inning
+            data_type: integer
+          - name: inning_topbot
+            data_type: text
+          - name: bat_home
+            data_type: boolean
+          - name: bat_team
+            data_type: text
+          - name: pit_team
+            data_type: text
+          - name: site
+            data_type: text
+          - name: score_bat
+            data_type: integer
+          - name: score_pit
+            data_type: integer
+          - name: batter_mlbam
+            data_type: integer
+          - name: batter_retro
+            data_type: text
+          - name: pitcher_mlbam
+            data_type: integer
+          - name: pitcher_retro
+            data_type: text
+          - name: bat_hand
+            data_type: text
+          - name: bat_side
+            data_type: text
+          - name: pit_hand
+            data_type: text
+          - name: lineup_pos
+            data_type: smallint
+          - name: bat_field_pos
+            data_type: smallint
+          - name: count_balls
+            data_type: smallint
+          - name: count_strikes
+            data_type: smallint
+          - name: pa
+            data_type: smallint
+          - name: ab
+            data_type: smallint
+          - name: hit
+            data_type: smallint
+          - name: single
+            data_type: smallint
+          - name: double
+            data_type: smallint
+          - name: triple
+            data_type: smallint
+          - name: home_run
+            data_type: smallint
+          - name: walk
+            data_type: smallint
+          - name: intent_walk
+            data_type: smallint
+          - name: hit_by_pitch
+            data_type: smallint
+          - name: strikeout
+            data_type: smallint
+          - name: sac_fly
+            data_type: smallint
+          - name: sac_bunt
+            data_type: smallint
+          - name: reached_on_error
+            data_type: smallint
+          - name: fielders_choice
+            data_type: smallint
+          - name: reached_on_interference
+            data_type: smallint
+          - name: gdp
+            data_type: smallint
+          - name: other_dp
+            data_type: smallint
+          - name: triple_play
+            data_type: smallint
+          - name: other_out
+            data_type: smallint
+          - name: ball_in_play
+            data_type: smallint
+          - name: bunt
+            data_type: smallint
+          - name: ground_ball
+            data_type: smallint
+          - name: fly_ball
+            data_type: smallint
+          - name: line_drive
+            data_type: smallint
+          - name: hit_type
+            data_type: text
+          - name: hit_location
+            data_type: text
+          - name: outs_pre
+            data_type: smallint
+          - name: outs_post
+            data_type: smallint
+          - name: outs_on_play
+            data_type: smallint
+          - name: on_1b
+            data_type: boolean
+          - name: on_2b
+            data_type: boolean
+          - name: on_3b
+            data_type: boolean
+          - name: runs_on_play
+            data_type: smallint
+          - name: earned_runs
+            data_type: smallint
+          - name: unearned_runs
+            data_type: smallint
+          - name: team_unearned_runs
+            data_type: smallint
+          - name: rbi
+            data_type: smallint
+          - name: run_b_runner_retro
+            data_type: text
+          - name: run_b_runner_mlbam
+            data_type: integer
+          - name: run_b_earned
+            data_type: smallint
+          - name: run_b_pitcher_retro
+            data_type: text
+          - name: run_b_pitcher_mlbam
+            data_type: integer
+          - name: run_1_runner_retro
+            data_type: text
+          - name: run_1_runner_mlbam
+            data_type: integer
+          - name: run_1_earned
+            data_type: smallint
+          - name: run_1_pitcher_retro
+            data_type: text
+          - name: run_1_pitcher_mlbam
+            data_type: integer
+          - name: run_2_runner_retro
+            data_type: text
+          - name: run_2_runner_mlbam
+            data_type: integer
+          - name: run_2_earned
+            data_type: smallint
+          - name: run_2_pitcher_retro
+            data_type: text
+          - name: run_2_pitcher_mlbam
+            data_type: integer
+          - name: run_3_runner_retro
+            data_type: text
+          - name: run_3_runner_mlbam
+            data_type: integer
+          - name: run_3_earned
+            data_type: smallint
+          - name: run_3_pitcher_retro
+            data_type: text
+          - name: run_3_pitcher_mlbam
+            data_type: integer
+          - name: wild_pitch
+            data_type: smallint
+          - name: passed_ball
+            data_type: smallint
+          - name: balk
+            data_type: smallint
+          - name: stolen_base_2b
+            data_type: smallint
+          - name: stolen_base_3b
+            data_type: smallint
+          - name: stolen_base_home
+            data_type: smallint
+          - name: caught_stealing_2b
+            data_type: smallint
+          - name: caught_stealing_3b
+            data_type: smallint
+          - name: caught_stealing_home
+            data_type: smallint
+          - name: pickoff_1b
+            data_type: smallint
+          - name: pickoff_2b
+            data_type: smallint
+          - name: pickoff_3b
+            data_type: smallint
+          - name: defensive_indifference
+            data_type: smallint
+          - name: other_advance
+            data_type: smallint
+          - name: error_count
+            data_type: smallint
+          - name: foul_error
+            data_type: smallint
+          - name: event_raw
+            data_type: text
+
       - name: statcast
         columns:
           - name: pitch_type
@@ -314,8 +562,6 @@ sources:
             data_type: integer
           - name: launch_speed_angle
             data_type: integer
-          - name: miss_distance
-            data_type: double precision
           - name: at_bat_number
             data_type: integer
           - name: pitch_number
@@ -406,6 +652,8 @@ sources:
             data_type: double precision
           - name: is_batted_ball
             data_type: boolean
+          - name: miss_distance
+            data_type: double precision
 
       - name: statcast_extra
         columns:
@@ -597,6 +845,8 @@ sources:
             data_type: integer
           - name: abs_challenge_challenging_player_type
             data_type: text
+          - name: pitch_number
+            data_type: integer
 
       - name: statcast_home_runs
         columns:
@@ -624,6 +874,15 @@ sources:
             data_type: double precision
           - name: swing_length
             data_type: double precision
+
+      - name: team_colors
+        columns:
+          - name: team_id
+            data_type: integer
+          - name: primary_color_hex
+            data_type: character varying
+          - name: secondary_color_hex
+            data_type: character varying
 
       - name: team_qualifiers
         columns:

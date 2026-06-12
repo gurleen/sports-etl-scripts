@@ -77,5 +77,14 @@ select
     sac_bunt as sh,
     outs_on_play as outs,
     runs_on_play as runs,
-    earned_runs as er
+    earned_runs as er,
+    -- responsible-pitcher run slots (basis for official season ER/ERA)
+    run_b_pitcher_mlbam,
+    run_b_earned,
+    run_1_pitcher_mlbam,
+    run_1_earned,
+    run_2_pitcher_mlbam,
+    run_2_earned,
+    run_3_pitcher_mlbam,
+    run_3_earned
 from src

@@ -20,10 +20,10 @@
     round(case when pa > 0 then bb::numeric / pa end, 3) as bb_pct,
     round(case when pa > 0 then so::numeric / pa end, 3) as k_pct,
     round(case
-        when (ab + bb - ibb + sf + hbp) > 0 then (
+        when (ab + ubb + sf + hbp) > 0 then (
             {{ w }}.w_bb * ubb + {{ w }}.w_hbp * hbp + {{ w }}.w_single * singles
             + {{ w }}.w_double * doubles + {{ w }}.w_triple * triples + {{ w }}.w_home_run * hr
-        )::numeric / (ab + bb - ibb + sf + hbp)
+        )::numeric / (ab + ubb + sf + hbp)
     end, 3) as woba
 {% endmacro %}
 

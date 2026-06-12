@@ -33,7 +33,9 @@ models:
       +materialized: view
       +tags: ["intermediate"]
     marts:
-      +materialized: materialized_view
+      # materialized_view is a Postgres/pg_duckdb materialization; the local DuckDB
+      # target (used for testing) builds marts as plain tables instead.
+      +materialized: "{{ 'materialized_view' if target.type == 'postgres' else 'table' }}"
       +tags: ["mart", "post_statcast_ingest"]
 
 tests:

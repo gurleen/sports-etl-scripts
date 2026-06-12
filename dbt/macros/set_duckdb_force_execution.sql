@@ -6,7 +6,11 @@
   superuser-settable per session, applied on every model/test connection.
 #}
 {% macro set_duckdb_force_execution() %}
+  {% if target.type == 'postgres' %}
   set duckdb.force_execution = true;
   set duckdb.memory_limit = '512MB';
   set duckdb.threads = 2
+  {% else %}
+  select 1
+  {% endif %}
 {% endmacro %}

@@ -9,7 +9,10 @@ models:
       - name: season
         tests: [not_null]
   - name: pitching_stats_season
-    description: Standard + sabermetric pitching line per pitcher per season (all seasons).
+    description: >
+      Standard + sabermetric pitching line per pitcher per season (all seasons).
+      ER uses responsible-pitcher run-slot attribution (official MLB basis); R and
+      other counting stats use the facing pitcher on each play.
     columns:
       - name: player_id
         tests: [not_null]
@@ -21,7 +24,9 @@ models:
       - name: player_id
         tests: [not_null]
   - name: pitching_stats_monthly
-    description: Pitching line per pitcher per season per calendar month.
+    description: >
+      Pitching line per pitcher per season per calendar month. ER uses
+      responsible-pitcher run-slot attribution; R uses facing pitcher.
     columns:
       - name: player_id
         tests: [not_null]

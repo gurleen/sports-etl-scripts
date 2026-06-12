@@ -43,6 +43,7 @@ logged and skipped; the run continues.
 - **Earned runs are exact, no redistribution:** each scoring runner carries `details.responsiblePitcher`, `earned`, and `teamUnearned`, which map straight to the `run_{b,1,2,3}_*` slots and `team_unearned_runs`. (Retrosheet required redistributing `tur`; the API gives per-run flags directly.)
 - **Team codes** are mapped MLB team id → Retrosheet code (`MLB_TEAMID_TO_RETRO`) so `bat_team`/`pit_team` are uniform across sources (e.g. `147`→`NYA`, `133`→`ATH`).
 - **Not populated for `mlbam` rows:** `*_retro` ids (NULL), `lineup_pos`/`bat_field_pos` (NULL). Pure substitution / no-play markers are skipped (Retrosheet keeps `NP` rows; they carry no stats).
+- **Mid-AB pinch hitter (Rule 9.15(b)):** when a batter leaves with two strikes and the substitute completes a strikeout, `batter_mlbam` / `bat_side` on the `pa=1` row are the original batter; any other PA completion stays on `matchup.batter`.
 
 ## `baserunning_events`
 
