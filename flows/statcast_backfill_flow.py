@@ -11,7 +11,6 @@ from prefect.artifacts import create_markdown_artifact, create_progress_artifact
 from etl_scripts.prefect_runtime import resolve_database_url_for_flow
 from etl_scripts.statcast import statcast_table_metrics
 from etl_scripts.statcast_backfill import backfill_statcast_missing_dates_for_year
-from flows.dbt_flow import run_dbt_rebuild_after_statcast
 from flows.statcast_extra_flow import statcast_extra_ingest_year_flow
 
 
@@ -115,26 +114,16 @@ def statcast_backfill_flow(
             start_date=processed[0],
             end_date=processed[-1],
             pause_sec=pause_sec,
-            rebuild_dbt=False,
         )
-    dbt_rebuild = run_dbt_rebuild_after_statcast(
-        before=before,
-        after=after,
-        backfill=summary,
-        statcast_extra=statcast_extra,
-        season_year=y,
-    )
     log.info(
-        "statcast backfill year=%s summary=%s statcast_extra=%s dbt=%s",
+        "statcast backfill year=%s summary=%s statcast_extra=%s",
         y,
         summary,
         statcast_extra,
-        dbt_rebuild,
     )
     return {
         "before": before,
         "after": after,
         "backfill": summary,
         "statcast_extra": statcast_extra,
-        "dbt_rebuild": dbt_rebuild,
     }

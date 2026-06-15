@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from api_clients.base import BaseApiClient
+from models.mlb_roster_entries import PeopleResponse
 from models.mlb_schedule import ScheduleResponse
+from models.mlb_transactions import TransactionsResponse
 
 STATS_API_V1_BASE = "https://statsapi.mlb.com/api/v1"
 SAVANT_BASE = "https://baseballsavant.mlb.com"
@@ -75,6 +77,48 @@ class _StatsApiClient(BaseApiClient):
         }
         payload = self.get_json("/schedule", params=params)
         return ScheduleResponse.model_validate(payload)
+
+    def get_transactions(
+        self,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        team_id: int | None = None,
+        player_id: int | None = None,
+        sport_id: int | None = None,
+    ) -> TransactionsResponse:
+        """
+        ``GET /transactions`` — roster moves over a date range.
+
+        Date parameters use ``YYYY-MM-DD``. ``team_id`` / ``player_id`` narrow the
+        results; otherwise all transactions in the window are returned.
+        """
+        params = {
+            "startDate": start_date,
+            "endDate": end_date,
+            "teamId": team_id,
+            "playerId": player_id,
+            "sportId": sport_id,
+        }
+        payload = self.get_json("/transactions", params=params)
+        return TransactionsResponse.model_validate(payload)
+
+    def get_person(
+        self,
+        person_id: int,
+        *,
+        hydrate: str | None = None,
+        fields: str | None = None,
+    ) -> PeopleResponse:
+        """
+        ``GET /people/{personId}`` — one person, optionally hydrated.
+
+        Pass ``hydrate="rosterEntries"`` to get the player's full roster-stint
+        history (one interval per ``(team, status, startDate)``) in ``people[0]``.
+        """
+        params = {"hydrate": hydrate, "fields": fields}
+        payload = self.get_json(f"/people/{person_id}", params=params)
+        return PeopleResponse.model_validate(payload)
 
     def get_game(self, game_pk: int) -> Any:
         """``GET /game/{game_pk}/feed/live`` — full live feed (play-by-play).

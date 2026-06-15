@@ -127,3 +127,61 @@ deployments:
       write_baserunning: true
     work_pool:
       name: etl-pool
+
+  - name: mlb-transactions-update-recent
+    description: MLB Stats API transactions for the trailing N days into mlb_transactions (idempotent upsert). Nightly.
+    tags:
+      - mlb
+      - transactions
+    schedule:
+      cron: "45 10 * * *"
+      timezone: UTC
+    entrypoint: flows/mlb_transactions_flow.py:mlb_transactions_update_recent
+    parameters:
+      days: 7
+    work_pool:
+      name: etl-pool
+
+  - name: mlb-transactions-backfill
+    description: MLB Stats API transactions across a historical date range into mlb_transactions. Override `start_date` / `end_date`.
+    tags:
+      - mlb
+      - transactions
+    entrypoint: flows/mlb_transactions_flow.py:mlb_transactions_backfill_flow
+    parameters:
+      start_date: "2021-01-01"
+      end_date: null
+      chunk_days: 30
+    work_pool:
+      name: etl-pool
+
+  - name: mlb-roster-entries-update-recent
+    description: MLB Stats API roster stints for recently-moved players + open stints into mlb_roster_entries (idempotent upsert). Nightly.
+    tags:
+      - mlb
+      - roster
+    schedule:
+      cron: "50 10 * * *"
+      timezone: UTC
+    entrypoint: flows/mlb_roster_entries_flow.py:mlb_roster_entries_update_recent
+    parameters:
+      days: 7
+      max_workers: 8
+      pause_sec: 0.0
+    work_pool:
+      name: etl-pool
+
+  - name: mlb-roster-entries-backfill
+    description: MLB Stats API roster stints for every person in mlb_transactions into mlb_roster_entries. Override `limit` for a smoke test; null backfills the whole universe.
+    tags:
+      - mlb
+      - roster
+    entrypoint: flows/mlb_roster_entries_flow.py:mlb_roster_entries_backfill_flow
+    parameters:
+      limit: null
+      max_workers: 8
+      pause_sec: 0.0
+      skip_existing: false
+      source_table: mlb_transactions
+    work_pool:
+      name: etl-pool
