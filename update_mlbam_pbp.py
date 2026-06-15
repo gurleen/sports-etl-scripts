@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 import typer
 from loguru import logger
 
+from etl_scripts.dbt_runner import run_mlbam_pbp_season_stats_dbt
 from etl_scripts.mlbam_pbp import baserunning_ddl, load_game, load_season
 
 app = typer.Typer(help="Load current/recent MLB Stats API play-by-play into retrosheet_plays.")
@@ -54,6 +55,13 @@ def update_recent(
         write_baserunning=not no_baserunning, max_workers=workers,
     )
     logger.info("Recent load ({}..{}) complete: {}", start, today, {k: v for k, v in summary.items() if k != "failures"})
+
+    if int(summary.get("games_loaded") or 0) > 0:
+        logger.info("Running dbt season stat models for year {}", y)
+        dbt_summary = run_mlbam_pbp_season_stats_dbt(y)
+        logger.info("dbt season stats rebuild complete: {}", dbt_summary)
+    else:
+        logger.info("No games loaded; skipping dbt season stats rebuild")
 
 
 @app.command("update-game")

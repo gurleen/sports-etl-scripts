@@ -12,6 +12,12 @@ from loguru import logger
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SELECTOR = "post_statcast_ingest"
 POST_STATCAST_EXTRA_SELECTOR = "post_statcast_extra_ingest"
+MLBAM_PBP_SEASON_STATS_MODELS = (
+    "stg_pbp__events",
+    "int_pitching__responsible_er",
+    "batting_stats_season",
+    "pitching_stats_season",
+)
 
 
 def repo_root() -> Path:
@@ -74,6 +80,25 @@ def _summarize_execution(result: dbtRunnerResult) -> dict[str, Any]:
     }
 
 
+def _run_dbt_build_args(args: list[str]) -> dict[str, Any]:
+    logger.info("dbt invoke: {}", " ".join(args))
+    invoke_result: dbtRunnerResult = dbtRunner().invoke(args)
+    summary = _summarize_execution(invoke_result)
+
+    if not invoke_result.success:
+        exc = invoke_result.exception
+        msg = str(exc) if exc is not None else "dbt build failed"
+        logger.error("dbt build failed: {}", msg)
+        raise RuntimeError(msg) from exc
+
+    logger.info(
+        "dbt build complete: {} nodes, statuses={}",
+        summary["node_count"],
+        summary["status_counts"],
+    )
+    return summary
+
+
 def run_dbt_build(
     *,
     selector: str = DEFAULT_SELECTOR,
@@ -100,24 +125,43 @@ def run_dbt_build(
     if season_year is not None:
         args.extend(["--vars", json.dumps({"season_year": season_year})])
 
-    logger.info("dbt invoke: {}", " ".join(args))
-    invoke_result: dbtRunnerResult = dbtRunner().invoke(args)
-    summary = _summarize_execution(invoke_result)
+    summary = _run_dbt_build_args(args)
     summary["selector"] = selector
     summary["project_dir"] = str(root)
     summary["profiles_dir"] = str(profiles)
     if season_year is not None:
         summary["season_year"] = season_year
+    return summary
 
-    if not invoke_result.success:
-        exc = invoke_result.exception
-        msg = str(exc) if exc is not None else "dbt build failed"
-        logger.error("dbt build failed: {}", msg)
-        raise RuntimeError(msg) from exc
 
-    logger.info(
-        "dbt build complete: {} nodes, statuses={}",
-        summary["node_count"],
-        summary["status_counts"],
-    )
+def run_mlbam_pbp_season_stats_dbt(
+    year: int,
+    *,
+    project_dir: Path | str | None = None,
+    profiles_dir: Path | str | None = None,
+) -> dict[str, Any]:
+    """
+    Rebuild PBP season stat marts after a recent MLBAM ingest.
+
+    Matches the models run by ``mlbam_pbp_update_recent`` in Prefect.
+    """
+    root = Path(project_dir) if project_dir is not None else REPO_ROOT
+    profiles = Path(profiles_dir) if profiles_dir is not None else REPO_ROOT
+    models = list(MLBAM_PBP_SEASON_STATS_MODELS)
+    args = [
+        "build",
+        "--project-dir",
+        str(root),
+        "--profiles-dir",
+        str(profiles),
+        "--select",
+        *models,
+        "--vars",
+        json.dumps({"season_year": year}),
+    ]
+    summary = _run_dbt_build_args(args)
+    summary["year"] = year
+    summary["models"] = models
+    summary["project_dir"] = str(root)
+    summary["profiles_dir"] = str(profiles)
     return summary

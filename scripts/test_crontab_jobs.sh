@@ -58,7 +58,7 @@ job_pbp() {
   run_logged "$ETL_LOG/mlbam-pbp-update-recent.log" \
     maybe_flock /tmp/mlbam-pbp-update-recent.lock \
     bash -lc \
-    '"$UV" run python update_mlb_schedule.py && "$UV" run python update_mlbam_pbp.py update-recent --days 3'
+    '"$UV" run --extra dbt python update_mlb_schedule.py season && "$UV" run --extra dbt python update_mlbam_pbp.py update-recent --days 3'
 }
 
 job_transactions() {

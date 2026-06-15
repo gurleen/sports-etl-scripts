@@ -8,9 +8,9 @@ from typing import Any
 from prefect import flow, get_run_logger, task
 from prefect.artifacts import create_markdown_artifact, create_progress_artifact, update_progress_artifact
 
+from etl_scripts.dbt_runner import MLBAM_PBP_SEASON_STATS_MODELS, run_mlbam_pbp_season_stats_dbt
 from etl_scripts.mlbam_pbp import load_season
 from etl_scripts.prefect_runtime import resolve_database_url_for_flow
-from etl_scripts.dbt_runner import run_dbt_build
 
 
 @task
@@ -18,41 +18,14 @@ def mlbam_pbp_dbt_season_stats(year: int) -> dict[str, Any]:
     """Run dbt models for batting and pitching season stats only (no splits)."""
     log = get_run_logger()
     log.info("Running dbt models for season stats (year=%d)", year)
-
-    # Use dbtRunner like the existing flow
-    from pathlib import Path
-    import json
-    from dbt.cli.main import dbtRunner
-
-    repo_root = Path(__file__).resolve().parents[1]
-
-    # Models to run for season stats only (not splits)
-    models_to_run = [
-        "stg_pbp__events",
-        "int_pitching__responsible_er",
-        "batting_stats_season",
-        "pitching_stats_season"
-    ]
-
     try:
-        args = [
-            "build",
-            "--project-dir", str(repo_root),
-            "--profiles-dir", str(repo_root),
-            "--select", *models_to_run,
-            "--vars", json.dumps({"season_year": year})
-        ]
-
-        log.info("Running dbt with args: %s", args)
-        result = dbtRunner().invoke(args)
-
-        if not result.success:
-            error_msg = str(result.exception) if result.exception else "dbt build failed"
-            log.error("dbt build failed: %s", error_msg)
-            return {"success": False, "error": error_msg, "year": year}
-
+        summary = run_mlbam_pbp_season_stats_dbt(year)
         log.info("Successfully built season stats models for year %d", year)
-        return {"success": True, "year": year, "models": models_to_run}
+        return {
+            "success": True,
+            "year": year,
+            "models": summary.get("models") or list(MLBAM_PBP_SEASON_STATS_MODELS),
+        }
     except Exception as e:
         log.error("Failed to run dbt models: %s", str(e))
         return {"success": False, "error": str(e), "year": year}
