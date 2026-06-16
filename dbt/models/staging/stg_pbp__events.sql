@@ -39,6 +39,8 @@ select
     -- subjects
     batter_mlbam,
     pitcher_mlbam,
+    -- batting team (Retrosheet franchise code; basis for league assignment)
+    bat_team,
     -- split dimensions
     bat_side,
     pit_hand,

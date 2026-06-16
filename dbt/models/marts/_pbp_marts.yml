@@ -2,7 +2,10 @@ version: 2
 
 models:
   - name: batting_stats_season
-    description: Standard + sabermetric batting line per player per season (all seasons, retrosheet + mlbam).
+    description: >
+      Standard + sabermetric batting line per player per season (all seasons,
+      retrosheet + mlbam). Includes wRC+ against a per-league (AL/NL), per-season
+      baseline (league derived from int_pbp__team_league); park-neutral.
     columns:
       - name: player_id
         tests: [not_null]
