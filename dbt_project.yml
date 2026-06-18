@@ -36,7 +36,10 @@ models:
       # materialized_view is a Postgres/pg_duckdb materialization; the local DuckDB
       # target (used for testing) builds marts as plain tables instead.
       +materialized: "{{ 'materialized_view' if target.type == 'postgres' else 'table' }}"
-      +tags: ["mart", "post_statcast_ingest"]
+      # No blanket ingest tag: Statcast-derived marts are tagged post_statcast_ingest
+      # individually (see dbt/models/marts/_marts.yml); PBP season marts are built by
+      # explicit --select in run_mlbam_pbp_season_stats_dbt.
+      +tags: ["mart"]
 
 tests:
   etl_scripts:

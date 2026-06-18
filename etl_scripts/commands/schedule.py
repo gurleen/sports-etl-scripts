@@ -1,13 +1,13 @@
-"""Typer CLI for loading MLB Stats API schedule into ``mlb_schedule``.
+"""``etl schedule`` — load MLB Stats API schedule into ``mlb_schedule``.
 
 Reads DATABASE_URL / POSTGRES_* from the environment or repo .env (same as the
 other MLB ETLs). Replaces all rows for the target ``season_year`` on each run.
 
 Examples
 --------
-    uv run python update_mlb_schedule.py season
-    uv run python update_mlb_schedule.py season 2025
-    uv run python update_mlb_schedule.py season --sport-id 1
+    uv run etl schedule season
+    uv run etl schedule season 2025
+    uv run etl schedule season --sport-id 1
 """
 
 from __future__ import annotations
@@ -28,7 +28,3 @@ def season(
     """Fetch and replace the full schedule for one season."""
     summary = sync_mlb_schedule_for_year(year, sport_id=sport_id)
     logger.info("Schedule sync complete: {}", summary)
-
-
-if __name__ == "__main__":
-    app()

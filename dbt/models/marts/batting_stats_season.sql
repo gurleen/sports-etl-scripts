@@ -11,8 +11,7 @@
 
   The park-factor term is still dropped — without a per-PA park lookup it defaults
   to league-average (1.0) and the park adjustment cancels — so this is the
-  league-relative, park-neutral wRC+ = (wRC/PA) / (lg wRC/PA) * 100. See
-  current_season_batting_stats for the additionally park-adjusted variant.
+  league-relative, park-neutral wRC+ = (wRC/PA) / (lg wRC/PA) * 100.
 #}
 
 with events as (

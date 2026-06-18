@@ -1,6 +1,10 @@
 selectors:
   - name: post_statcast_ingest
-    description: Marts to rebuild after Statcast ingest (replaces refresh-materialized-views).
+    description: >
+      Statcast/Savant-derived marts to rebuild after `etl statcast update-recent`
+      (games, game_coverage, daily_game_coverage, statcast_events, abs_challenges).
+      PBP season marts are NOT included here — they are built by --select in
+      run_mlbam_pbp_season_stats_dbt after `etl pbp update-recent`.
     definition:
       method: tag
       value: post_statcast_ingest

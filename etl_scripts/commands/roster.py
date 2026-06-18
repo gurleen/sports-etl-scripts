@@ -1,4 +1,4 @@
-"""Typer CLI for loading MLB Stats API roster stints into ``mlb_roster_entries``.
+"""``etl roster`` — load MLB Stats API roster stints into ``mlb_roster_entries``.
 
 Each row is one roster stint ``(person_id, team_id, start_date, status_code)``
 pulled from ``GET /people/{id}?hydrate=rosterEntries``. Rows are upserted on that
@@ -10,13 +10,13 @@ other MLB ETLs). Set ``ETL_DB_BACKEND=duckdb`` to target a local DuckDB file.
 Examples
 --------
     # one player (smoke test)
-    uv run python update_mlb_roster_entries.py person 660271
+    uv run etl roster person 660271
     # first 50 people from the transactions universe
-    uv run python update_mlb_roster_entries.py backfill --limit 50
+    uv run etl roster backfill --limit 50
     # full backfill over every person in mlb_transactions
-    uv run python update_mlb_roster_entries.py backfill
+    uv run etl roster backfill
     # nightly refresh of recently-moved players + open stints
-    uv run python update_mlb_roster_entries.py update-recent --days 7
+    uv run etl roster update-recent --days 7
 """
 
 from __future__ import annotations
@@ -74,7 +74,3 @@ def update_recent(
     """Re-fetch recently-moved players plus anyone with an open stint (idempotent upsert)."""
     res = update_recent_roster_entries(days=days, max_workers=max_workers, pause_sec=pause_sec)
     logger.info("Recent update complete: {}", {k: v for k, v in res.items() if k != "failed_ids"})
-
-
-if __name__ == "__main__":
-    app()

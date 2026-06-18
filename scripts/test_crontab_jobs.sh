@@ -46,33 +46,32 @@ run_logged() {
 }
 
 job_statcast() {
-  echo "=== statcast-update-recent (cron: 0 10 * * * UTC) ==="
+  echo "=== statcast-update-recent (cron: 0 10 * * *) ==="
   run_logged "$ETL_LOG/statcast-update-recent.log" \
     maybe_flock /tmp/statcast-update-recent.lock \
-    bash -lc \
-    '"$UV" run python update_statcast.py update-recent --days 1 && "$UV" run python -c "from datetime import date, timedelta; from etl_scripts.statcast import get_database_url; from etl_scripts.statcast_extra import sync_missing_gamefeeds_for_year; today=date.today(); sync_missing_gamefeeds_for_year(today.year, start_date=today-timedelta(days=1), end_date=today, database_url=get_database_url())"'
+    "$UV" run --extra dbt etl statcast update-recent --days 1
 }
 
 job_pbp() {
-  echo "=== mlbam-pbp-update-recent (cron: 30 10 * * * UTC) ==="
+  echo "=== mlbam-pbp-update-recent (cron: 30 10 * * *) ==="
   run_logged "$ETL_LOG/mlbam-pbp-update-recent.log" \
     maybe_flock /tmp/mlbam-pbp-update-recent.lock \
     bash -lc \
-    '"$UV" run --extra dbt python update_mlb_schedule.py && "$UV" run --extra dbt python update_mlbam_pbp.py update-recent --days 3'
+    '"$UV" run --extra dbt etl schedule season && "$UV" run --extra dbt etl pbp update-recent --days 3'
 }
 
 job_transactions() {
-  echo "=== mlb-transactions-update-recent (cron: 45 10 * * * UTC) ==="
+  echo "=== mlb-transactions-update-recent (cron: 45 10 * * *) ==="
   run_logged "$ETL_LOG/mlb-transactions-update-recent.log" \
     maybe_flock /tmp/mlb-transactions-update-recent.lock \
-    "$UV" run python update_mlb_transactions.py update-recent --days 7
+    "$UV" run etl transactions update-recent --days 7
 }
 
 job_roster() {
-  echo "=== mlb-roster-entries-update-recent (cron: 50 10 * * * UTC) ==="
+  echo "=== mlb-roster-entries-update-recent (cron: 50 10 * * *) ==="
   run_logged "$ETL_LOG/mlb-roster-entries-update-recent.log" \
     maybe_flock /tmp/mlb-roster-entries-update-recent.lock \
-    "$UV" run python update_mlb_roster_entries.py update-recent --days 7 --max-workers 8
+    "$UV" run etl roster update-recent --days 7 --max-workers 8
 }
 
 usage() {

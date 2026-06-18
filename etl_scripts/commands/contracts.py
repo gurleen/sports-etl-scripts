@@ -1,4 +1,4 @@
-"""Typer CLI for parsing team payroll CSVs into one row per player contract.
+"""``etl contracts`` — parse team payroll CSVs into one row per player contract.
 
 The ``parse`` command flattens the Cot's-style payroll sheet and prints the clean rows
 (or writes a tidy CSV with ``--out``). The ``load`` command upserts them into
@@ -8,10 +8,10 @@ environment or repo .env, same as the other MLB ETLs.
 
 Examples
 --------
-    uv run python update_mlb_contracts.py parse "MLB Philadelphia 26.csv"
-    uv run python update_mlb_contracts.py parse *.csv --out contracts_clean.csv
-    uv run python update_mlb_contracts.py load "MLB Philadelphia 26.csv" --print
-    uv run python update_mlb_contracts.py load "MLB Philadelphia 26.csv"
+    uv run etl contracts parse "MLB Philadelphia 26.csv"
+    uv run etl contracts parse *.csv --out contracts_clean.csv
+    uv run etl contracts load "MLB Philadelphia 26.csv" --print
+    uv run etl contracts load "MLB Philadelphia 26.csv"
 """
 
 from __future__ import annotations
@@ -68,7 +68,3 @@ def load(
         return
     written = load_contracts(contracts)
     logger.info("Load complete: {} rows upserted", written)
-
-
-if __name__ == "__main__":
-    app()

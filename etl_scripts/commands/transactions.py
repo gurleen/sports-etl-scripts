@@ -1,4 +1,4 @@
-"""Typer CLI for loading MLB Stats API transactions into ``mlb_transactions``.
+"""``etl transactions`` — load MLB Stats API transactions into ``mlb_transactions``.
 
 Reads DATABASE_URL / POSTGRES_* from the environment or repo .env (same as the
 other MLB ETLs). Rows are upserted on ``transaction_id``, so every command is
@@ -6,10 +6,10 @@ idempotent.
 
 Examples
 --------
-    uv run python update_mlb_transactions.py range-load 2026-01-01 2026-01-31
-    uv run python update_mlb_transactions.py backfill 2021-01-01           # ..through today
-    uv run python update_mlb_transactions.py backfill 2021-01-01 2023-12-31 --chunk-days 30
-    uv run python update_mlb_transactions.py update-recent --days 7
+    uv run etl transactions range-load 2026-01-01 2026-01-31
+    uv run etl transactions backfill 2021-01-01           # ..through today
+    uv run etl transactions backfill 2021-01-01 2023-12-31 --chunk-days 30
+    uv run etl transactions update-recent --days 7
 """
 
 from __future__ import annotations
@@ -64,7 +64,3 @@ def update_recent(
     """Re-fetch recent transactions (idempotent upsert)."""
     res = update_recent_transactions(days=days, team_id=team_id, sport_id=sport_id)
     logger.info("Recent update complete: {}", res)
-
-
-if __name__ == "__main__":
-    app()

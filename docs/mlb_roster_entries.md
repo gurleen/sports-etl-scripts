@@ -10,8 +10,7 @@ Companion table: `mlb_transactions` (the *why* — option / IL / DFA / trade), k
 on the same bare-integer `person_id`. These stints are the *who/where/when*.
 
 - Logic: [`etl_scripts/mlb_roster_entries.py`](../etl_scripts/mlb_roster_entries.py)
-- CLI: [`update_mlb_roster_entries.py`](../update_mlb_roster_entries.py)
-- Prefect: [`flows/mlb_roster_entries_flow.py`](../flows/mlb_roster_entries_flow.py) (deployments `mlb-roster-entries-update-recent`, `mlb-roster-entries-backfill`)
+- CLI: `etl roster` ([`etl_scripts/commands/roster.py`](../etl_scripts/commands/roster.py))
 - Models: [`models/mlb_roster_entries.py`](../models/mlb_roster_entries.py)
 
 ## Source
@@ -112,13 +111,13 @@ boundaries.
 
 ```bash
 # One player (smoke test)
-uv run python update_mlb_roster_entries.py person 660271
+uv run etl roster person 660271
 
 # Full backfill over every person in mlb_transactions (concurrent; resumable)
-uv run python update_mlb_roster_entries.py backfill --max-workers 12 --skip-existing
+uv run etl roster backfill --max-workers 12 --skip-existing
 
 # Nightly: refresh players moved in the last N days + anyone with an open stint
-uv run python update_mlb_roster_entries.py update-recent --days 7
+uv run etl roster update-recent --days 7
 ```
 
 `update-recent` re-fetches players appearing in the trailing N days of

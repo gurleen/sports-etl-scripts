@@ -6,29 +6,29 @@ into a single play-grain Parquet/warehouse table, designed so batting and
 pitching stats fall out of plain `GROUP BY` + `SUM` under arbitrary filters
 (e.g. LHP vs RHB).
 
-It is intentionally **not** a Prefect flow. Run it on your machine, then load the
-Parquet into the warehouse yourself. The schema is source-agnostic — a `source`
+It is intentionally **not** one of the nightly cron jobs. Run it on your machine,
+then load the Parquet into the warehouse yourself. The schema is source-agnostic — a `source`
 discriminator plus nullable MLBAM / Retrosheet id pairs let current-season MLBAM
 play-by-play load into the same table later.
 
 - Logic: [`etl_scripts/retrosheet.py`](../etl_scripts/retrosheet.py)
-- CLI: [`build_retrosheet.py`](../build_retrosheet.py)
+- CLI: `etl retrosheet` ([`etl_scripts/commands/retrosheet.py`](../etl_scripts/commands/retrosheet.py))
 
 ## Usage
 
 ```bash
 # Modern era (default 2000..current year) -> data/retrosheet_plays_2000_<year>.parquet
-uv run python build_retrosheet.py build
+uv run etl retrosheet build
 
 # A specific range, postseason included, Hive-partitioned by season
-uv run python build_retrosheet.py build --start-year 2015 --end-year 2024 \
+uv run etl retrosheet build --start-year 2015 --end-year 2024 \
     --game-types regular --game-types worldseries --partition-by-season
 
 # Every game type (regular + post + allstar)
-uv run python build_retrosheet.py build --game-types all
+uv run etl retrosheet build --game-types all
 
 # Emit the CREATE TABLE statement that matches the Parquet columns
-uv run python build_retrosheet.py emit-ddl --output data/retrosheet_plays_schema.sql
+uv run etl retrosheet emit-ddl --output data/retrosheet_plays_schema.sql
 ```
 
 Season zips/CSVs are cached under `data/retrosheet_cache/` (gitignored) and
@@ -40,9 +40,9 @@ in-progress year) 404 and are skipped with a warning.
 One row per **play (event)**. PA-outcome columns (`pa`, `ab`, `hit`, `single`…
 `home_run`, `walk`, `intent_walk`, `hit_by_pitch`, `strikeout`, `sac_fly`,
 `sac_bunt`, `reached_on_error`, `fielders_choice`, `gdp`, …) are `0/1` integers,
-so they sum directly. This mirrors the Statcast-derived
-[`stg_statcast__pitching_events`](../dbt/models/staging/stg_statcast__pitching_events.sql)
-/ `stg_statcast__batting_events` flag layout, with two deliberate normalizations:
+so they sum directly. The flag layout matches the PBP staging model
+[`stg_pbp__events`](../dbt/models/staging/stg_pbp__events.sql) that reads this
+table downstream, with two deliberate normalizations:
 
 - `walk` excludes intentional walks (Retrosheet's `walk` includes them); `intent_walk` holds the IBB count — matching the dbt `walk` / `intent_walk` split.
 - `hit = single + double + triple + home_run`.
@@ -114,7 +114,7 @@ reading `DATABASE_URL` / `POSTGRES_*` from the environment or repo `.env`, same 
 the Statcast ETL:
 
 ```bash
-uv run python build_retrosheet.py load data/retrosheet_plays_2000_2025.parquet
+uv run etl retrosheet load data/retrosheet_plays_2000_2025.parquet
 ```
 
 Indexes are created **after** the bulk load (much faster than maintaining them

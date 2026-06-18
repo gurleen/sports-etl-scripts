@@ -1,4 +1,12 @@
-"""Typer CLI for ad-hoc Statcast updates (scheduled runs use Prefect flows)."""
+"""``etl statcast`` — load Baseball Savant / Statcast data into the warehouse.
+
+``update-recent`` is the nightly entrypoint: it ingests recent Statcast rows,
+syncs the matching Savant ``/gf`` rows into ``statcast_extra``, then rebuilds the
+Statcast-derived dbt marts (games, coverage, statcast_events, abs_challenges) when
+the ingest changed anything. The dbt step needs the ``dbt`` extra:
+
+    uv run --extra dbt etl statcast update-recent --days 1
+"""
 
 from datetime import date, datetime, time, timedelta
 
@@ -14,8 +22,9 @@ from etl_scripts.statcast import (
     write_statcast_csv,
 )
 from etl_scripts.statcast_backfill import backfill_statcast_missing_dates_for_year
+from etl_scripts.statcast_extra import sync_missing_gamefeeds_for_year
 
-app = typer.Typer()
+app = typer.Typer(help="Load Baseball Savant / Statcast data into the warehouse.")
 
 
 @app.command()
@@ -67,12 +76,32 @@ def update_date(
 
 @app.command()
 def update_recent(days: int = 1):
+    """Ingest recent Statcast + statcast_extra, then rebuild the Statcast marts."""
     today = datetime.today()
     start_date = today - timedelta(days=days)
     url = get_database_url()
+
     data = get_statcast_data(start_date, today)
-    load_data_to_db(data, database_url=url)
-    logger.info("Recent update completed")
+    written = load_data_to_db(data, database_url=url)
+    logger.info("Statcast ingest complete: rows_fetched={} rows_written={}", len(data), written)
+
+    extra = sync_missing_gamefeeds_for_year(
+        today.year, start_date=start_date.date(), end_date=today.date(), database_url=url
+    )
+    logger.info("statcast_extra sync complete: {}", extra)
+
+    # dbt is an optional dependency; import lazily so `etl` works without --extra dbt.
+    from etl_scripts.dbt_runner import DEFAULT_SELECTOR, run_dbt_build, statcast_relevant_data_changed
+
+    if statcast_relevant_data_changed(
+        ingest={"rows_fetched": len(data), "rows_written": written},
+        statcast_extra=extra,
+    ):
+        logger.info("Statcast data changed; rebuilding marts (selector={})", DEFAULT_SELECTOR)
+        dbt_summary = run_dbt_build(selector=DEFAULT_SELECTOR)
+        logger.info("dbt build complete: {}", dbt_summary)
+    else:
+        logger.info("No Statcast data changed; skipping dbt rebuild")
 
 
 @app.command()
@@ -111,7 +140,3 @@ def write_to_file(season: int, filename: str):
     data = get_statcast_data(start_date, end_date)
     write_statcast_csv(data, filename)
     logger.info("Data written to {}", filename)
-
-
-if __name__ == "__main__":
-    app()

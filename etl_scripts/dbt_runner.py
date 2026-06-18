@@ -143,7 +143,7 @@ def run_mlbam_pbp_season_stats_dbt(
     """
     Rebuild PBP season stat marts after a recent MLBAM ingest.
 
-    Matches the models run by ``mlbam_pbp_update_recent`` in Prefect.
+    Matches the models run by ``etl pbp update-recent``.
     """
     root = Path(project_dir) if project_dir is not None else REPO_ROOT
     profiles = Path(profiles_dir) if profiles_dir is not None else REPO_ROOT

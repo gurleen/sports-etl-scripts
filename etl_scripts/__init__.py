@@ -1,1 +1,1 @@
-"""Shared ETL library used by CLIs and Prefect flows."""
+"""Shared ETL library backing the unified ``etl`` CLI (see :mod:`etl_scripts.cli`)."""

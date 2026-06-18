@@ -1,20 +1,19 @@
-"""Typer CLI for building a Retrosheet play-by-play Parquet locally.
+"""``etl retrosheet`` — build a Retrosheet play-by-play Parquet locally.
 
-This is a **local, manual** tool — it is intentionally *not* wired into Prefect.
-Run it on your machine, then load the resulting Parquet into the warehouse
-yourself (the emitted DDL maps 1:1 to the Parquet columns).
+This is a **local, manual** tool. Run it on your machine, then load the resulting
+Parquet into the warehouse yourself (the emitted DDL maps 1:1 to the Parquet columns).
 
 Examples
 --------
     # Build the modern era (default 2000..current) into one Parquet file
-    uv run python build_retrosheet.py build
+    uv run etl retrosheet build
 
     # A specific range, postseason included, partitioned by season
-    uv run python build_retrosheet.py build --start-year 2015 --end-year 2024 \
+    uv run etl retrosheet build --start-year 2015 --end-year 2024 \
         --game-types regular --game-types worldseries --partition-by-season
 
     # Emit the matching CREATE TABLE statement
-    uv run python build_retrosheet.py emit-ddl --output data/retrosheet_plays_schema.sql
+    uv run etl retrosheet emit-ddl --output data/retrosheet_plays_schema.sql
 """
 
 from __future__ import annotations
@@ -109,7 +108,3 @@ def load(
     if create_index:
         create_indexes(url, table_name=table_name)
     logger.info("Load complete: {} rows into {}", rows, table_name)
-
-
-if __name__ == "__main__":
-    app()

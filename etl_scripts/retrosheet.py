@@ -1,7 +1,7 @@
 """Build a play-by-play fact table from Retrosheet's pre-parsed ``plays`` CSVs.
 
-This is a **local, ad-hoc** tool (run via ``build_retrosheet.py``), not a Prefect
-flow. It downloads Retrosheet's parsed play-by-play files
+This is a **local, ad-hoc** tool (run via ``etl retrosheet``), not one of the
+nightly cron jobs. It downloads Retrosheet's parsed play-by-play files
 (https://retrosheet.org/downloads/plays.html), cleans them with Polars into a
 single play-grain schema designed for batting/pitching aggregation, maps
 Retrosheet player IDs to MLBAM IDs via the Chadwick Bureau Register, and writes
