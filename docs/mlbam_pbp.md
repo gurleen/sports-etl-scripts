@@ -7,28 +7,27 @@ handedness-split queries span both sources. Per-runner baserunning detail also
 lands in a dedicated `baserunning_events` table.
 
 - Logic: [`etl_scripts/mlbam_pbp.py`](../etl_scripts/mlbam_pbp.py)
-- CLI: [`update_mlbam_pbp.py`](../update_mlbam_pbp.py)
-- Prefect: [`flows/mlbam_pbp_flow.py`](../flows/mlbam_pbp_flow.py) (deployments `mlbam-pbp-update-recent`, `mlbam-pbp-ingest-year`)
+- CLI: `etl pbp` ([`etl_scripts/commands/pbp.py`](../etl_scripts/commands/pbp.py))
 
 ## Source
 
 `GET /api/v1.1/game/{game_pk}/feed/live` (`MlbApiClient.stats.get_game`). The
 driver lists Final (`coded_game_state='F'`) regular-season `game_pk`s for a
 season from the `mlb_schedule` table, so **run the schedule sync first** if a
-season isn't loaded there (`mlb-schedule-ingest-year` / `sync_mlb_schedule_for_year`).
+season isn't loaded there (`etl schedule season` / `sync_mlb_schedule_for_year`).
 
 ## Usage
 
 ```bash
 # One game
-uv run python update_mlbam_pbp.py update-game 776135
+uv run etl pbp update-game 776135
 
 # A whole season (skips games already loaded)
-uv run python update_mlbam_pbp.py season 2026
-uv run python update_mlbam_pbp.py season 2025 --reload   # re-fetch every game
+uv run etl pbp season 2026
+uv run etl pbp season 2025 --reload   # re-fetch every game
 
-# Nightly: re-fetch games finalized in the last N days (box scores get corrected)
-uv run python update_mlbam_pbp.py update-recent --days 3
+# Nightly: re-fetch recent finals (box scores get corrected) + rebuild PBP season stats
+uv run --extra dbt etl pbp update-recent --days 3
 ```
 
 Loads are **idempotent**: each game deletes its existing `mlbam` rows in both
@@ -54,5 +53,6 @@ automatically on first load; `emit-baserunning-ddl` prints the DDL.
 
 ## Automation
 
-`mlbam-pbp-update-recent` runs nightly (cron `30 10 * * *` UTC) re-fetching the
-last 3 days of finals; `mlbam-pbp-ingest-year` backfills a full season on demand.
+Cron runs `etl pbp update-recent --days 3` nightly (`30 10 * * *`, right after the
+schedule sync), re-fetching the last 3 days of finals and rebuilding the PBP
+season-stat marts. Backfill a full season on demand with `etl pbp season <year>`.

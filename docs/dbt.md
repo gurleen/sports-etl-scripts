@@ -1,6 +1,6 @@
 # dbt (warehouse transforms)
 
-Derived tables and materialized views move from hand-maintained SQL / PRQL (`query.prql`) into [dbt](https://docs.getdbt.com/) models under `dbt/models/`. Prefect continues to load raw data; dbt builds and refreshes marts.
+Derived tables and materialized views live as [dbt](https://docs.getdbt.com/) models under `dbt/models/`. The `etl` ingest CLIs load raw data into `public`; dbt builds and refreshes the marts in the `baseball` schema.
 
 dbt paths live under `dbt/` so they do not collide with the Python package `models/` (Savant ingest).
 
@@ -13,7 +13,7 @@ dbt paths live under `dbt/` so they do not collide with the Python package `mode
 | `dbt/models/marts/` | Consumer-facing tables; default `materialized_view` (`games` is a table) |
 | `dbt/macros/get_season_year.sql` | Current calendar year, or `--vars '{"season_year": 2025}'` |
 
-The marts `current_season_batting_stats` and `current_season_pitching_stats` replace warehouse objects of the same names listed in `etl_scripts/materialized_views.py`.
+Season-stat marts (`batting_stats_season`, `pitching_stats_season`, plus the monthly and splits variants) are built from the unified play-by-play fact (`retrosheet_plays`) via `stg_pbp__events`. The Statcast source separately feeds the coverage/events marts (`games`, `game_coverage`, `daily_game_coverage`, `statcast_events`, `abs_challenges`).
 
 ## Setup
 
@@ -53,37 +53,36 @@ The marts `current_season_batting_stats` and `current_season_pitching_stats` rep
 ## Commands
 
 ```bash
-# Build the current-season marts (creates/refreshes materialized views + upstream staging/intermediate)
+# Rebuild the Statcast-derived marts (games, coverage, statcast_events, abs_challenges)
 uv run dbt build --selector post_statcast_ingest
 
 # Build one mart and its upstream deps (required on first run or after adding models)
-uv run dbt build --select current_season_pitching_stats+
+uv run dbt build --select pitching_stats_season+
 
 # Compile SQL without touching the warehouse
-uv run dbt compile --select current_season_batting_stats
-uv run dbt compile --select current_season_pitching_stats
+uv run dbt compile --select batting_stats_season
+uv run dbt compile --select pitching_stats_season
 
 # Preview rows (needs warehouse access)
-uv run dbt show --select current_season_batting_stats --limit 20
-uv run dbt show --select current_season_pitching_stats --limit 20
+uv run dbt show --select batting_stats_season --limit 20
+uv run dbt show --select pitching_stats_season --limit 20
 ```
 
-## Prefect integration
+## CLI integration (cron)
 
-Statcast flows (`statcast-update-recent`, `statcast-update-date`, `statcast-update-full`, `statcast-season`, `statcast-backfill`) call the **`dbt-rebuild-baseball`** subflow after ingest. It runs `dbt build --selector post_statcast_ingest` via `dbt.cli.main.dbtRunner` in `etl_scripts/dbt_runner.py`, and **skips** when no Statcast-related rows changed (unless you trigger with `force: true`).
+dbt rebuilds run automatically inside the ingest CLIs — there is no separate orchestrator:
 
-Manual rebuild:
+- `etl statcast update-recent` ingests Statcast + `statcast_extra`, then runs `dbt build --selector post_statcast_ingest` via `dbt.cli.main.dbtRunner` (`etl_scripts/dbt_runner.py`), **skipping** when no Statcast rows changed (`statcast_relevant_data_changed`).
+- `etl pbp update-recent` rebuilds the PBP season-stat marts (`run_mlbam_pbp_season_stats_dbt`) whenever it loads games.
+
+Both run nightly from [`crontab.sh`](../crontab.sh); pass `--extra dbt` so the dbt adapters are importable. Manual rebuild:
 
 ```bash
-uv run prefect deployment run 'dbt-rebuild-baseball/dbt-rebuild-baseball' --param force=true
+uv run --extra dbt etl dbt build --selector post_statcast_ingest
 ```
-
-Drop legacy warehouse MVs once dbt manages them, then remove `etl_scripts/materialized_views.py` if unused.
-
-`query.prql` remains useful for parameterized API queries (`$1`–`$7` filters). Shared logic should live in dbt; PRQL can target `{{ ref('current_season_batting_stats') }}` via compiled tables or thin filter layers.
 
 ## Adding another mart
 
 1. Add SQL under `dbt/models/marts/` (reuse `ref()` on intermediate models).
-2. Tag with `post_statcast_ingest` if it should run after ingest.
+2. If it's Statcast-derived, tag it `post_statcast_ingest` (via a `config: tags:` block in `_marts.yml`) so `etl statcast update-recent` rebuilds it. PBP season marts are instead added to `MLBAM_PBP_SEASON_STATS_MODELS` in `etl_scripts/dbt_runner.py`.
 3. Run `dbt build --select your_model+` to validate upstream deps.

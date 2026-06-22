@@ -1,20 +1,22 @@
-"""Typer CLI for building a Retrosheet play-by-play Parquet locally.
+"""``etl retrosheet`` — build a Retrosheet play-by-play Parquet locally.
 
-This is a **local, manual** tool — it is intentionally *not* wired into Prefect.
-Run it on your machine, then load the resulting Parquet into the warehouse
-yourself (the emitted DDL maps 1:1 to the Parquet columns).
+This is a **local, manual** tool. Run it on your machine, then load the resulting
+Parquet into the warehouse yourself (the emitted DDL maps 1:1 to the Parquet columns).
 
 Examples
 --------
     # Build the modern era (default 2000..current) into one Parquet file
-    uv run python build_retrosheet.py build
+    uv run etl retrosheet build
+
+    # Every season Retrosheet publishes (single plays.zip download)
+    uv run etl retrosheet build --full
 
     # A specific range, postseason included, partitioned by season
-    uv run python build_retrosheet.py build --start-year 2015 --end-year 2024 \
+    uv run etl retrosheet build --start-year 2015 --end-year 2024 \
         --game-types regular --game-types worldseries --partition-by-season
 
     # Emit the matching CREATE TABLE statement
-    uv run python build_retrosheet.py emit-ddl --output data/retrosheet_plays_schema.sql
+    uv run etl retrosheet emit-ddl --output data/retrosheet_plays_schema.sql
 """
 
 from __future__ import annotations
@@ -45,8 +47,13 @@ DEFAULT_START_YEAR = 2000
 
 @app.command()
 def build(
-    start_year: int = typer.Option(DEFAULT_START_YEAR, help="First season (inclusive)."),
-    end_year: int | None = typer.Option(None, help="Last season (inclusive). Defaults to current year."),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Download Retrosheet's all-season plays.zip instead of per-year files.",
+    ),
+    start_year: int = typer.Option(DEFAULT_START_YEAR, help="First season (inclusive). Ignored with --full."),
+    end_year: int | None = typer.Option(None, help="Last season (inclusive). Defaults to current year. Ignored with --full."),
     game_types: list[str] = typer.Option(
         ["regular"],
         "--game-types",
@@ -57,16 +64,22 @@ def build(
     partition_by_season: bool = typer.Option(False, help="Write a Hive-partitioned dir (season=YYYY/)."),
 ):
     """Download, clean, and write Retrosheet plays to Parquet."""
-    years = season_range(start_year, end_year)
-    logger.info("Building Retrosheet plays for seasons {}..{}", years[0], years[-1])
-
     keep_types = None if game_types == ["all"] else game_types
     id_map = chadwick_id_map()
-    lf = build_dataset(years, id_map=id_map, cache_dir=cache_dir, game_types=keep_types)
+    if full:
+        logger.info("Building Retrosheet plays from full plays.zip bundle")
+        lf = build_dataset(id_map=id_map, cache_dir=cache_dir, game_types=keep_types, use_full_bundle=True)
+    else:
+        years = season_range(start_year, end_year)
+        logger.info("Building Retrosheet plays for seasons {}..{}", years[0], years[-1])
+        lf = build_dataset(years, id_map=id_map, cache_dir=cache_dir, game_types=keep_types)
 
     if output is None:
         suffix = "" if partition_by_season else ".parquet"
-        output = cache_dir.parent / f"retrosheet_plays_{years[0]}_{years[-1]}{suffix}"
+        if full:
+            output = cache_dir.parent / f"retrosheet_plays_full{suffix}"
+        else:
+            output = cache_dir.parent / f"retrosheet_plays_{years[0]}_{years[-1]}{suffix}"
 
     write_dataset(lf, output, partition_by_season=partition_by_season)
     logger.info("Done. Load into the warehouse table that matches `emit-ddl` output.")
@@ -109,7 +122,3 @@ def load(
     if create_index:
         create_indexes(url, table_name=table_name)
     logger.info("Load complete: {} rows into {}", rows, table_name)
-
-
-if __name__ == "__main__":
-    app()

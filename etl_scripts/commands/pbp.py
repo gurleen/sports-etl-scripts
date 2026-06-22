@@ -1,25 +1,24 @@
-"""Typer CLI for loading MLB Stats API play-by-play into ``retrosheet_plays`` (source='mlbam').
+"""``etl pbp`` — load MLB Stats API play-by-play into ``retrosheet_plays`` (source='mlbam').
 
 Reads DATABASE_URL / POSTGRES_* from the environment or repo .env (same as the
-Statcast ETL). Drives off the ``mlb_schedule`` table — run the schedule sync
+Statcast ETL). Drives off the ``mlb_schedule`` table — run ``etl schedule season``
 first if the season isn't loaded there.
 
 Examples
 --------
-    uv run python update_mlbam_pbp.py update-game 776135
-    uv run python update_mlbam_pbp.py season 2025            # only-missing by default
-    uv run python update_mlbam_pbp.py season 2025 --reload   # re-fetch every game
-    uv run python update_mlbam_pbp.py update-recent --days 3  # re-fetch recent finals
+    uv run etl pbp update-game 776135
+    uv run etl pbp season 2025            # only-missing by default
+    uv run etl pbp season 2025 --reload   # re-fetch every game
+    uv run --extra dbt etl pbp update-recent --days 3  # re-fetch recent finals + dbt season stats
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import typer
 from loguru import logger
 
-from etl_scripts.dbt_runner import run_mlbam_pbp_season_stats_dbt
 from etl_scripts.mlbam_pbp import baserunning_ddl, load_game, load_season
 
 app = typer.Typer(help="Load current/recent MLB Stats API play-by-play into retrosheet_plays.")
@@ -46,7 +45,7 @@ def update_recent(
     no_baserunning: bool = typer.Option(False, help="Skip the baserunning_events table."),
     workers: int = typer.Option(8, help="Concurrent fetch/load workers (each its own DB connection)."),
 ):
-    """Re-fetch recently-finalized games (idempotent replace)."""
+    """Re-fetch recently-finalized games (idempotent replace), then rebuild PBP season stats."""
     today = date.today()
     y = year or today.year
     start = today - timedelta(days=days)
@@ -57,6 +56,9 @@ def update_recent(
     logger.info("Recent load ({}..{}) complete: {}", start, today, {k: v for k, v in summary.items() if k != "failures"})
 
     if int(summary.get("games_loaded") or 0) > 0:
+        # dbt is an optional dependency; import lazily so `etl` works without --extra dbt.
+        from etl_scripts.dbt_runner import run_mlbam_pbp_season_stats_dbt
+
         logger.info("Running dbt season stat models for year {}", y)
         dbt_summary = run_mlbam_pbp_season_stats_dbt(y)
         logger.info("dbt season stats rebuild complete: {}", dbt_summary)
@@ -78,7 +80,3 @@ def update_game(
 def emit_baserunning_ddl():
     """Print the baserunning_events CREATE TABLE statement."""
     typer.echo(baserunning_ddl())
-
-
-if __name__ == "__main__":
-    app()

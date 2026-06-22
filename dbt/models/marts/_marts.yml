@@ -5,6 +5,7 @@ models:
     description: One row per game in warehouse Statcast data (all seasons and game types loaded).
     config:
       materialized: table
+      tags: ["post_statcast_ingest"]
     columns:
       - name: game_pk
         tests: [not_null, unique]
@@ -21,6 +22,8 @@ models:
       Schedule rows with detailed_state Cancelled are excluded.
       Use coverage_status = missing_data (or has_statcast_data = false and in_schedule = true)
       to list scheduled games without Statcast data.
+    config:
+      tags: ["post_statcast_ingest"]
     columns:
       - name: game_pk
         tests: [not_null, unique]
@@ -37,6 +40,8 @@ models:
     description: >
       Per calendar day and game type, compares games present in Statcast-derived games
       against games in the MLB Stats API mlb_schedule ingest (Cancelled games excluded).
+    config:
+      tags: ["post_statcast_ingest"]
     columns:
       - name: calendar_date
         tests: [not_null]
@@ -57,7 +62,7 @@ models:
       Joined on game_pk, at_bat_number (= ab_number), and pitch_number.
     config:
       enabled: false  # TEMP: re-enable after miss_distance backfill / MV rebuild
-      tags: ["post_statcast_extra_ingest"]
+      tags: ["post_statcast_ingest", "post_statcast_extra_ingest"]
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -82,7 +87,7 @@ models:
       ABS challenge pitches from statcast_extra (is_abs_challenge = true), with challenge
       fields unprefixed and minimal pitch context for joining back to statcast_events.
     config:
-      tags: ["post_statcast_extra_ingest"]
+      tags: ["post_statcast_ingest", "post_statcast_extra_ingest"]
     columns:
       - name: game_pk
         tests: [not_null]
@@ -98,21 +103,3 @@ models:
           - accepted_values:
               arguments:
                 values: ['overturned', 'confirmed', 'pending']
-
-  - name: current_season_batting_stats
-    description: >
-      Current-season batting leaderboard (replaces warehouse materialized view of the same name).
-      Logic ported from query.prql; add dbt vars later for API-style filters (date range, qualified, platoon, etc.).
-    columns:
-      - name: player_id
-        tests: [not_null, unique]
-      - name: woba
-        tests: [not_null]
-
-  - name: current_season_pitching_stats
-    description: >
-      Current-season pitching leaderboard (v1: counting stats and basic rates).
-      ERA uses all runs allowed (RA9), not earned runs. Advanced metrics and ER attribution deferred.
-    columns:
-      - name: player_id
-        tests: [not_null, unique]
