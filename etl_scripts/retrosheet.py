@@ -31,6 +31,7 @@ in sync.
 
 from __future__ import annotations
 
+import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -48,6 +49,8 @@ SOURCE_LABEL = "retrosheet"
 """Value written to the ``source`` discriminator column."""
 
 PLAYS_URL = "https://www.retrosheet.org/downloads/plays/{year}plays.zip"
+FULL_PLAYS_URL = "https://www.retrosheet.org/downloads/plays/plays.zip"
+"""Single archive with every play Retrosheet publishes (all seasons in one CSV)."""
 EARLIEST_SEASON = 1903
 """First season Retrosheet publishes a per-year parsed plays file for."""
 
@@ -369,6 +372,85 @@ def season_url(year: int) -> str:
     return PLAYS_URL.format(year=year)
 
 
+def _extract_csv_from_zip(zip_path: Path, csv_path: Path) -> Path:
+    with zipfile.ZipFile(zip_path) as zf:
+        members = [m for m in zf.namelist() if m.lower().endswith(".csv")]
+        if not members:
+            raise ValueError(f"{zip_path.name} contains no CSV")
+        with zf.open(members[0]) as src:
+            csv_path.write_bytes(src.read())
+    logger.debug("Extracted {}", csv_path.name)
+    return csv_path
+
+
+_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def _format_bytes(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024**2:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024**3:
+        return f"{n / 1024**2:.1f} MB"
+    return f"{n / 1024**3:.2f} GB"
+
+
+def _print_download_progress(label: str, done: int, total: int | None) -> None:
+    """Overwrite one stderr line with download progress (no extra dependencies)."""
+    if total:
+        pct = min(100.0, 100.0 * done / total)
+        msg = f"\r  {label}: {pct:5.1f}% ({_format_bytes(done)} / {_format_bytes(total)})"
+    else:
+        msg = f"\r  {label}: {_format_bytes(done)}"
+    sys.stderr.write(msg)
+    sys.stderr.flush()
+
+
+def _finish_download_progress() -> None:
+    sys.stderr.write("\n")
+    sys.stderr.flush()
+
+
+def _download_url(url: str, dest: Path) -> None:
+    req = Request(url, headers={"User-Agent": _USER_AGENT})
+    with urlopen(req, timeout=_DOWNLOAD_TIMEOUT_SEC) as resp:
+        total_raw = resp.headers.get("Content-Length")
+        total = int(total_raw) if total_raw else None
+        downloaded = 0
+        label = dest.name
+        with dest.open("wb") as out:
+            while True:
+                chunk = resp.read(_DOWNLOAD_CHUNK_BYTES)
+                if not chunk:
+                    break
+                out.write(chunk)
+                downloaded += len(chunk)
+                _print_download_progress(label, downloaded, total)
+        if downloaded:
+            _finish_download_progress()
+
+
+def download_all_plays(cache_dir: Path = DEFAULT_CACHE_DIR) -> Path:
+    """Download + unzip Retrosheet's all-season ``plays.zip``; return the CSV path.
+
+    Cached files are reused. The extracted CSV is written to ``plays.csv`` beside
+    the zip under ``cache_dir``.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = cache_dir / "plays.csv"
+    if csv_path.exists():
+        logger.debug("Using cached {}", csv_path.name)
+        return csv_path
+
+    zip_path = cache_dir / "plays.zip"
+    if not zip_path.exists():
+        logger.info("Downloading {}", FULL_PLAYS_URL)
+        _download_url(FULL_PLAYS_URL, zip_path)
+
+    return _extract_csv_from_zip(zip_path, csv_path)
+
+
 def download_season(year: int, cache_dir: Path = DEFAULT_CACHE_DIR) -> Path | None:
     """Download + unzip one season's ``{year}plays.csv``; return its path.
 
@@ -385,25 +467,15 @@ def download_season(year: int, cache_dir: Path = DEFAULT_CACHE_DIR) -> Path | No
     if not zip_path.exists():
         url = season_url(year)
         logger.info("Downloading {}", url)
-        req = Request(url, headers={"User-Agent": _USER_AGENT})
         try:
-            with urlopen(req, timeout=_DOWNLOAD_TIMEOUT_SEC) as resp:
-                data = resp.read()
+            _download_url(url, zip_path)
         except HTTPError as exc:
             if exc.code == 404:
                 logger.warning("No Retrosheet plays file for {} (404); skipping", year)
                 return None
             raise
-        zip_path.write_bytes(data)
 
-    with zipfile.ZipFile(zip_path) as zf:
-        members = [m for m in zf.namelist() if m.lower().endswith(".csv")]
-        if not members:
-            raise ValueError(f"{zip_path.name} contains no CSV")
-        with zf.open(members[0]) as src:
-            csv_path.write_bytes(src.read())
-    logger.debug("Extracted {}", csv_path.name)
-    return csv_path
+    return _extract_csv_from_zip(zip_path, csv_path)
 
 
 # ---------------------------------------------------------------------------
@@ -456,15 +528,25 @@ def clean_season(
 
 
 def build_dataset(
-    years: Iterable[int],
+    years: Iterable[int] | None = None,
     *,
+    use_full_bundle: bool = False,
     id_map: dict[str, int] | None = None,
     cache_dir: Path = DEFAULT_CACHE_DIR,
     game_types: Iterable[str] | None = ("regular",),
 ) -> pl.LazyFrame:
-    """Download + clean each season in ``years`` and return one concatenated frame."""
+    """Download + clean plays and return one concatenated frame.
+
+    With ``use_full_bundle``, downloads Retrosheet's all-season ``plays.zip``
+    instead of per-year archives. ``years`` is ignored in that mode.
+    """
     validate_schema_consistency()
     resolved_map = id_map if id_map is not None else chadwick_id_map()
+    if use_full_bundle:
+        csv_path = download_all_plays(cache_dir=cache_dir)
+        return clean_season(csv_path, resolved_map, game_types=game_types)
+    if years is None:
+        raise ValueError("years is required when use_full_bundle is False")
     frames: list[pl.LazyFrame] = []
     for year in years:
         csv_path = download_season(year, cache_dir=cache_dir)

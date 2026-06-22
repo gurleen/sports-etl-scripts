@@ -20,6 +20,9 @@ play-by-play load into the same table later.
 # Modern era (default 2000..current year) -> data/retrosheet_plays_2000_<year>.parquet
 uv run etl retrosheet build
 
+# Every season Retrosheet publishes (one ~560 MB plays.zip download)
+uv run etl retrosheet build --full
+
 # A specific range, postseason included, Hive-partitioned by season
 uv run etl retrosheet build --start-year 2015 --end-year 2024 \
     --game-types regular --game-types worldseries --partition-by-season
@@ -32,8 +35,10 @@ uv run etl retrosheet emit-ddl --output data/retrosheet_plays_schema.sql
 ```
 
 Season zips/CSVs are cached under `data/retrosheet_cache/` (gitignored) and
-reused on later runs. Seasons Retrosheet has not published yet (e.g. an
-in-progress year) 404 and are skipped with a warning.
+reused on later runs. With `--full`, the all-season bundle is cached as
+`plays.zip` / `plays.csv` in that directory instead of per-year files. Seasons
+Retrosheet has not published yet (e.g. an in-progress year) 404 when using the
+per-year download path and are skipped with a warning.
 
 ## Grain & schema
 
