@@ -34,6 +34,37 @@ Loads are **idempotent**: each game deletes its existing `mlbam` rows in both
 tables, then re-inserts (single transaction per game). Per-game failures are
 logged and skipped; the run continues.
 
+### Loading into MotherDuck / DuckDB
+
+`--target` picks the destination and `--table-name` matches the play-by-play table
+on that database, so current-season `mlbam` rows land in the **same** table the
+[Retrosheet loader](retrosheet.md) writes to (e.g. `plays` on MotherDuck):
+
+```bash
+export motherduck_token=...                 # or put it in .env (lowercase name)
+
+# Schedule must live in the SAME database — the only-missing/game-list query reads it
+uv run etl schedule season 2026 --target motherduck
+
+# Current-season play-by-play -> the shared `plays` table
+uv run etl pbp season 2026 --target motherduck --table-name plays
+uv run etl pbp update-game 776135 --target motherduck --table-name plays
+```
+
+Notes:
+
+- The driver reads `mlb_schedule` from the target database, so run `etl schedule
+  season --target …` against the same place first.
+- Explicit `--target` loads write to the connection's default schema (`main` on
+  MotherDuck), matching the Retrosheet `load`; the env-var path
+  (`ETL_DB_BACKEND=duckdb`) still uses `public` for the local dev mirror.
+- DuckDB/MotherDuck is a single-writer target, so concurrent `--workers` is forced
+  to 1 there. `update-recent --target motherduck` skips the dbt season-stat rebuild
+  (those models build against the Postgres warehouse profile).
+- `--connection` overrides the destination (a specific `md:my_db` URI or a DuckDB
+  file path); otherwise MotherDuck defaults to `md:` and the token comes from the
+  `motherduck_token` env var.
+
 ## Mapping notes
 
 - **Grain matches Retrosheet:** one `pa=1` row per plate appearance, plus a `pa=0` row per mid-PA baserunning event (steal, pickoff, WP, PB, balk, DI). `play_number` is a per-game running counter (like Retrosheet `pn`), not `atBatIndex`.

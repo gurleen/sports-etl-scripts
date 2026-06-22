@@ -126,6 +126,30 @@ Indexes are created **after** the bulk load (much faster than maintaining them
 during insert). `emit-ddl` prints the equivalent `CREATE TABLE` + `CREATE INDEX`
 if you prefer to run the SQL yourself.
 
+### Other destinations (MotherDuck / DuckDB)
+
+`--target` chooses where to push the Parquet, and `--table-name` renames the
+table per destination (the same schema-portable DDL works on every engine):
+
+```bash
+# MotherDuck — token from the `motherduck_token` env var; table renamed to `plays`
+export motherduck_token=...
+uv run etl retrosheet load data/retrosheet_plays_2000_2025.parquet \
+    --target motherduck --table-name plays
+
+# …a specific MotherDuck database
+uv run etl retrosheet load data/... --target motherduck --connection 'md:my_db' --table-name plays
+
+# A local DuckDB file (defaults to DUCKDB_PATH or dev.duckdb)
+uv run etl retrosheet load data/... --target duckdb --connection analytics.duckdb --table-name plays
+```
+
+To mirror the data into both warehouses, run `load` once per target. DuckDB and
+MotherDuck read the Parquet natively in a single `INSERT … SELECT` (the
+`--connection` value is a file path or an `md:` URI); secondary indexes are a
+Postgres-only optimization and are skipped there. `--replace-source` works on all
+targets.
+
 ### Indexes
 
 | Index | Columns | For |

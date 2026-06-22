@@ -566,9 +566,14 @@ def baserunning_ddl(table_name: str = BASERUNNING_TABLE) -> str:
 # Load
 # ---------------------------------------------------------------------------
 def _replace_game_rows(
-    cur, table: str, columns: Sequence[str], game_id: str, rows: Sequence[dict[str, Any]]
+    cur,
+    table: str,
+    columns: Sequence[str],
+    game_id: str,
+    rows: Sequence[dict[str, Any]],
+    dest: db.Destination | None = None,
 ) -> int:
-    p = db.placeholder()
+    p = db.placeholder(dest)
     cur.execute(f'DELETE FROM "{table}" WHERE source = {p} AND game_id = {p}', (SOURCE_LABEL, game_id))
     if not rows:
         return 0
@@ -576,12 +581,14 @@ def _replace_game_rows(
     placeholders = ", ".join([p] * len(columns))
     stmt = f'INSERT INTO "{table}" ({fields}) VALUES ({placeholders})'
     tuples = [tuple(r.get(c) for c in columns) for r in rows]
-    db.insert_many(cur, stmt, tuples)
+    db.insert_many(cur, stmt, tuples, dest)
     return len(tuples)
 
 
-def _connect(database_url: str | None = None):
-    """Open a connection on the configured backend (DuckDB if ``ETL_DB_BACKEND=duckdb``)."""
+def _connect(dest: db.Destination | None = None, database_url: str | None = None):
+    """Open a connection on ``dest`` (or the env-configured backend when ``None``)."""
+    if dest is not None:
+        return db.connect(dest)
     if db.get_backend() == "duckdb":
         return db.connect()
     import psycopg2
@@ -593,6 +600,8 @@ def load_game(
     game_pk: int,
     *,
     database_url: str | None = None,
+    dest: db.Destination | None = None,
+    plays_table: str = TABLE_NAME,
     client: MlbApiClient | None = None,
     conn: Any = None,
     write_baserunning: bool = True,
@@ -605,25 +614,29 @@ def load_game(
     for this call. ``ensure_baserunning_table`` defaults to True only when this call
     owns the connection — bulk callers create the table once up front instead, so
     concurrent workers don't race on ``CREATE TABLE``.
+
+    ``dest`` overrides the env-configured backend (e.g. MotherDuck); ``plays_table``
+    names the play-by-play table (``retrosheet_plays`` by default, ``plays`` on
+    MotherDuck).
     """
     cl = client or MlbApiClient()
     feed = cl.stats.get_game(game_pk)
     play_rows, br_rows = parse_game(feed)
     game_id = str(game_pk)
     own_conn = conn is None
-    c = conn or _connect(database_url)
+    c = conn or _connect(dest, database_url)
     if ensure_baserunning_table is None:
         ensure_baserunning_table = own_conn
     try:
-        cur = db.cursor(c)
-        if own_conn and db.get_backend() == "duckdb":
-            db.executescript(cur, full_ddl())
-        n_plays = _replace_game_rows(cur, TABLE_NAME, SCHEMA_COLUMNS, game_id, play_rows)
+        cur = db.cursor(c, dest)
+        if own_conn and db.is_duckdb(dest):
+            db.executescript(cur, full_ddl(plays_table), dest)
+        n_plays = _replace_game_rows(cur, plays_table, SCHEMA_COLUMNS, game_id, play_rows, dest)
         n_br = 0
         if write_baserunning:
             if ensure_baserunning_table:
-                db.executescript(cur, baserunning_ddl())
-            n_br = _replace_game_rows(cur, BASERUNNING_TABLE, BASERUNNING_COLUMNS, game_id, br_rows)
+                db.executescript(cur, baserunning_ddl(), dest)
+            n_br = _replace_game_rows(cur, BASERUNNING_TABLE, BASERUNNING_COLUMNS, game_id, br_rows, dest)
         c.commit()
     finally:
         if own_conn:
@@ -638,16 +651,19 @@ def list_final_regular_game_pks(
     season: int,
     *,
     database_url: str | None = None,
+    dest: db.Destination | None = None,
+    plays_table: str = TABLE_NAME,
     only_missing: bool = True,
     start_date: date | None = None,
     end_date: date | None = None,
 ) -> list[int]:
     """Final regular-season game_pks for ``season`` from ``mlb_schedule``.
 
-    With ``only_missing`` (default), skips games already loaded as ``mlbam`` rows.
-    ``start_date`` / ``end_date`` restrict by ``official_date`` (recent re-fetch).
+    With ``only_missing`` (default), skips games already loaded as ``mlbam`` rows in
+    ``plays_table``. ``start_date`` / ``end_date`` restrict by ``official_date``
+    (recent re-fetch). The ``mlb_schedule`` table must exist in the target database.
     """
-    p = db.placeholder()
+    p = db.placeholder(dest)
     clauses = [f"season_year = {p}", "game_type = 'R'", "coded_game_state = 'F'"]
     params: list[Any] = [season]
     if start_date is not None:
@@ -656,17 +672,17 @@ def list_final_regular_game_pks(
         clauses.append(f"official_date <= {p}"); params.append(end_date)
     if only_missing:
         clauses.append(
-            "NOT EXISTS (SELECT 1 FROM retrosheet_plays p "
+            f'NOT EXISTS (SELECT 1 FROM "{plays_table}" p '
             "WHERE p.source = 'mlbam' AND p.game_id = mlb_schedule.game_pk::text)"
         )
     q = f"SELECT game_pk FROM mlb_schedule WHERE {' AND '.join(clauses)} ORDER BY official_date, game_pk"
-    conn = _connect(database_url)
+    conn = _connect(dest, database_url)
     try:
-        cur = db.cursor(conn)
-        if db.get_backend() == "duckdb":
-            # Fresh DuckDB files start empty; ensure retrosheet_plays exists for the
+        cur = db.cursor(conn, dest)
+        if db.is_duckdb(dest):
+            # Fresh DuckDB files start empty; ensure the plays table exists for the
             # NOT EXISTS subquery (and the inserts load_games will run next).
-            db.executescript(cur, full_ddl())
+            db.executescript(cur, full_ddl(plays_table), dest)
         cur.execute(q, params)
         return [int(r[0]) for r in cur.fetchall()]
     finally:
@@ -677,6 +693,8 @@ def load_games(
     game_pks: Iterable[int],
     *,
     database_url: str | None = None,
+    dest: db.Destination | None = None,
+    plays_table: str = TABLE_NAME,
     write_baserunning: bool = True,
     max_workers: int = 8,
     progress_every: int = 50,
@@ -689,8 +707,9 @@ def load_games(
     per worker, not once per game). Bounded so the loader can't saturate the DB.
     ``on_progress(done, total, loaded, failed)`` fires every ``progress_every`` games.
 
-    On the DuckDB backend (``ETL_DB_BACKEND=duckdb``), ``max_workers`` is forced to 1:
-    a single DuckDB file doesn't tolerate concurrent writers from multiple connections.
+    On the DuckDB/MotherDuck backend, ``max_workers`` is forced to 1: a single
+    DuckDB connection target doesn't tolerate concurrent writers. ``dest`` overrides
+    the env-configured backend; ``plays_table`` names the play-by-play table.
     """
     pks = list(game_pks)
     if not pks:
@@ -698,20 +717,20 @@ def load_games(
         return {"games_targeted": 0, "games_loaded": 0, "plays_written": 0,
                 "baserunning_written": 0, "games_failed": 0, "failures": []}
 
-    backend = db.get_backend()
-    if backend == "duckdb":
+    duckdb_backend = db.is_duckdb(dest)
+    if duckdb_backend:
         max_workers = 1
 
-    # Create the retrosheet_plays/baserunning tables once up front so concurrent
-    # workers don't race on CREATE TABLE (which can deadlock in Postgres).
-    if write_baserunning or backend == "duckdb":
-        c0 = _connect(database_url)
+    # Create the plays/baserunning tables once up front so concurrent workers don't
+    # race on CREATE TABLE (which can deadlock in Postgres).
+    if write_baserunning or duckdb_backend:
+        c0 = _connect(dest, database_url)
         try:
-            cur0 = db.cursor(c0)
-            if backend == "duckdb":
-                db.executescript(cur0, full_ddl())
+            cur0 = db.cursor(c0, dest)
+            if duckdb_backend:
+                db.executescript(cur0, full_ddl(plays_table), dest)
             if write_baserunning:
-                db.executescript(cur0, baserunning_ddl())
+                db.executescript(cur0, baserunning_ddl(), dest)
             c0.commit()
         finally:
             c0.close()
@@ -722,7 +741,7 @@ def load_games(
 
     def _ctx():
         if not hasattr(tls, "conn"):
-            tls.conn = _connect(database_url)
+            tls.conn = _connect(dest, database_url)
             tls.client = MlbApiClient()  # per-thread: get_game mutates base_url
             with conns_lock:
                 conns.append(tls.conn)
@@ -732,7 +751,7 @@ def load_games(
         conn, client = _ctx()
         try:
             res = load_game(
-                gp, client=client, conn=conn,
+                gp, dest=dest, plays_table=plays_table, client=client, conn=conn,
                 write_baserunning=write_baserunning, ensure_baserunning_table=False,
             )
             return gp, res, None
@@ -779,6 +798,8 @@ def load_season(
     season: int,
     *,
     database_url: str | None = None,
+    dest: db.Destination | None = None,
+    plays_table: str = TABLE_NAME,
     only_missing: bool = True,
     start_date: date | None = None,
     end_date: date | None = None,
@@ -786,14 +807,18 @@ def load_season(
     max_workers: int = 8,
     on_progress: "Callable[[int, int, int, int], None] | None" = None,
 ) -> dict[str, Any]:
-    """Load all (or only-missing) Final regular-season games for ``season``."""
+    """Load all (or only-missing) Final regular-season games for ``season``.
+
+    ``dest`` overrides the env-configured backend (e.g. MotherDuck) and
+    ``plays_table`` names the play-by-play table written to.
+    """
     pks = list_final_regular_game_pks(
-        season, database_url=database_url, only_missing=only_missing,
-        start_date=start_date, end_date=end_date,
+        season, database_url=database_url, dest=dest, plays_table=plays_table,
+        only_missing=only_missing, start_date=start_date, end_date=end_date,
     )
     logger.info("mlbam pbp season {}: {} games to load (only_missing={}, workers={})",
                 season, len(pks), only_missing, max_workers)
     return load_games(
-        pks, database_url=database_url, write_baserunning=write_baserunning,
-        max_workers=max_workers, on_progress=on_progress,
+        pks, database_url=database_url, dest=dest, plays_table=plays_table,
+        write_baserunning=write_baserunning, max_workers=max_workers, on_progress=on_progress,
     ) | {"season": season}

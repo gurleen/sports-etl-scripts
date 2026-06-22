@@ -620,6 +620,15 @@ def full_ddl(table_name: str = TABLE_NAME) -> str:
 # ---------------------------------------------------------------------------
 # Warehouse load
 # ---------------------------------------------------------------------------
+# Supported load destinations. ``postgres`` is the production warehouse (psycopg2
+# + ADBC); ``duckdb`` covers both a local DuckDB file and MotherDuck, which is
+# just DuckDB reached over an ``md:`` connection string (token via the
+# ``motherduck_token`` env var). The DDL in :data:`PG_SCHEMA` is engine-portable —
+# DuckDB accepts the same ``TEXT``/``SMALLINT``/``BOOLEAN`` types and ``PRIMARY KEY``.
+POSTGRES_BACKEND = "postgres"
+DUCKDB_BACKEND = "duckdb"
+
+
 def _run_sql(database_url: str, statements: str) -> None:
     import psycopg2
 
@@ -629,38 +638,84 @@ def _run_sql(database_url: str, statements: str) -> None:
         conn.commit()
 
 
-def ensure_table(database_url: str, *, table_name: str = TABLE_NAME) -> None:
+def _duckdb_connect(connection: str) -> Any:
+    """Open a DuckDB connection. ``connection`` is a file path or an ``md:`` URI.
+
+    For MotherDuck (``md:`` / ``md:dbname``) DuckDB reads the access token from the
+    ``motherduck_token`` environment variable and auto-loads the extension.
+    """
+    import duckdb
+
+    return duckdb.connect(connection)
+
+
+def _parquet_source_sql(parquet_path: Path) -> str:
+    """``read_parquet(...)`` expression for a single file or a season-partitioned dir."""
+    literal = str(parquet_path).replace("'", "''")
+    if parquet_path.is_dir():
+        # Hive-partitioned (``season=YYYY/``) output: restore ``season`` from the path.
+        return f"read_parquet('{literal}/**/*.parquet', hive_partitioning = true)"
+    return f"read_parquet('{literal}')"
+
+
+def ensure_table(
+    connection: str, *, table_name: str = TABLE_NAME, backend: str = POSTGRES_BACKEND
+) -> None:
     """Create the table (without indexes) if it does not yet exist."""
-    _run_sql(database_url, create_table_ddl(table_name))
+    ddl = create_table_ddl(table_name)
+    if backend == DUCKDB_BACKEND:
+        con = _duckdb_connect(connection)
+        try:
+            con.execute(ddl)
+        finally:
+            con.close()
+    else:
+        _run_sql(connection, ddl)
     logger.info("Ensured table {} exists", table_name)
 
 
-def create_indexes(database_url: str, *, table_name: str = TABLE_NAME) -> None:
-    """Create the secondary indexes (idempotent)."""
-    _run_sql(database_url, create_index_ddl(table_name))
+def create_indexes(
+    connection: str, *, table_name: str = TABLE_NAME, backend: str = POSTGRES_BACKEND
+) -> None:
+    """Create the secondary indexes (idempotent).
+
+    Indexes back the per-season pitcher/batter scans on the 2 GB Postgres VPS. The
+    columnar DuckDB/MotherDuck engine doesn't need them, so they are skipped there.
+    """
+    if backend == DUCKDB_BACKEND:
+        logger.info("Skipping secondary indexes for DuckDB/MotherDuck target {}", table_name)
+        return
+    _run_sql(connection, create_index_ddl(table_name))
     logger.info("Ensured indexes on {}: {}", table_name, ", ".join(s for s, _ in INDEX_SPECS))
 
 
 def load_parquet_to_db(
     parquet_path: Path,
-    database_url: str,
+    connection: str,
     *,
     table_name: str = TABLE_NAME,
     replace_source: str | None = None,
+    backend: str = POSTGRES_BACKEND,
 ) -> int:
-    """Append a Parquet dataset into ``table_name`` one season at a time (bounded memory).
+    """Append a Parquet dataset into ``table_name``. Returns rows written.
 
-    Loads via Polars + ADBC (``adbc-driver-postgresql``). Returns rows written.
     The table must already exist (see :func:`ensure_table`); column order/types
-    match :data:`PG_SCHEMA`.
+    match :data:`PG_SCHEMA`. ``replace_source`` first deletes existing rows with that
+    ``source`` value (e.g. ``"retrosheet"``) so a corrected rebuild cleanly replaces
+    the prior load.
 
-    ``replace_source`` first deletes existing rows with that ``source`` value (e.g.
-    ``"retrosheet"``) so a corrected rebuild cleanly replaces the prior load.
+    Postgres loads via Polars + ADBC (``adbc-driver-postgresql``) one season at a
+    time (bounded memory). DuckDB/MotherDuck reads the Parquet natively in a single
+    ``INSERT ... SELECT`` (``connection`` is a file path or ``md:`` URI).
     """
+    if backend == DUCKDB_BACKEND:
+        return _load_parquet_duckdb(
+            parquet_path, connection, table_name=table_name, replace_source=replace_source
+        )
     if replace_source is not None:
         import psycopg2
 
-        with psycopg2.connect(database_url) as conn:
+        with psycopg2.connect(connection) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     f"DELETE FROM {table_name} WHERE source = %s", (replace_source,)
@@ -672,9 +727,34 @@ def load_parquet_to_db(
     total = 0
     for season in seasons:
         df = lf.filter(pl.col("season") == season).collect()
-        df.write_database(table_name, connection=database_url, engine="adbc", if_table_exists="append")
+        df.write_database(table_name, connection=connection, engine="adbc", if_table_exists="append")
         total += df.height
         logger.info("Loaded season {} ({} rows; {} total)", season, df.height, total)
+    return total
+
+
+def _load_parquet_duckdb(
+    parquet_path: Path,
+    connection: str,
+    *,
+    table_name: str = TABLE_NAME,
+    replace_source: str | None = None,
+) -> int:
+    """Load a Parquet into a DuckDB/MotherDuck table via native ``read_parquet``."""
+    source_sql = _parquet_source_sql(parquet_path)
+    # Select by explicit column name so physical Parquet order (and a restored
+    # ``season`` partition column) can't shift values into the wrong columns.
+    cols = ", ".join(f'"{c}"' for c in SCHEMA_COLUMNS)
+    con = _duckdb_connect(connection)
+    try:
+        if replace_source is not None:
+            con.execute(f"DELETE FROM {table_name} WHERE source = ?", [replace_source])
+            logger.info("Deleted existing {} rows with source={!r}", table_name, replace_source)
+        con.execute(f"INSERT INTO {table_name} ({cols}) SELECT {cols} FROM {source_sql}")
+        total = con.execute(f"SELECT count(*) FROM {source_sql}").fetchone()[0]
+    finally:
+        con.close()
+    logger.info("Loaded {} rows into {}", total, table_name)
     return total
 
 

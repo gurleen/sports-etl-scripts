@@ -13,8 +13,10 @@ from etl_scripts.statcast import get_database_url
 from models.mlb_schedule import ScheduleGame
 
 
-def _connect(database_url: str | None = None):
-    """Open a connection on the configured backend (DuckDB if ``ETL_DB_BACKEND=duckdb``)."""
+def _connect(dest: db.Destination | None = None, database_url: str | None = None):
+    """Open a connection on ``dest`` (or the env-configured backend when ``None``)."""
+    if dest is not None:
+        return db.connect(dest)
     if db.get_backend() == "duckdb":
         return db.connect()
     import psycopg2
@@ -83,11 +85,11 @@ def _mlb_schedule_ddl() -> str:
     )
 
 
-def ensure_mlb_schedule_table(*, database_url: str | None = None) -> None:
-    conn = _connect(database_url)
+def ensure_mlb_schedule_table(*, dest: db.Destination | None = None, database_url: str | None = None) -> None:
+    conn = _connect(dest, database_url)
     try:
-        cur = db.cursor(conn)
-        db.executescript(cur, _mlb_schedule_ddl())
+        cur = db.cursor(conn, dest)
+        db.executescript(cur, _mlb_schedule_ddl(), dest)
         conn.commit()
     finally:
         conn.close()
@@ -128,11 +130,11 @@ def _rows_from_schedule_response(response: Any, *, season_year: int) -> list[dic
     return rows
 
 
-def _build_mlb_schedule_upsert_statement() -> str:
+def _build_mlb_schedule_upsert_statement(dest: db.Destination | None = None) -> str:
     columns = _INSERT_COLUMNS
     conflict_columns = MLB_SCHEDULE_CONFLICT_COLUMNS
     update_cols = [c for c in columns if c not in conflict_columns]
-    p = db.placeholder()
+    p = db.placeholder(dest)
     fields = ", ".join(f'"{c}"' for c in columns)
     placeholders = ", ".join([p] * len(columns))
     conflict = ", ".join(f'"{c}"' for c in conflict_columns)
@@ -147,6 +149,7 @@ def replace_schedule_for_year(
     year: int,
     rows: Sequence[dict[str, Any]],
     *,
+    dest: db.Destination | None = None,
     database_url: str | None = None,
 ) -> int:
     """
@@ -154,25 +157,25 @@ def replace_schedule_for_year(
 
     Upserts on ``game_pk`` so duplicate API rows or overlapping runs do not raise unique violations.
     """
-    ensure_mlb_schedule_table(database_url=database_url)
-    p = db.placeholder()
-    conn = _connect(database_url)
+    ensure_mlb_schedule_table(dest=dest, database_url=database_url)
+    p = db.placeholder(dest)
+    conn = _connect(dest, database_url)
     try:
-        cur = db.cursor(conn)
+        cur = db.cursor(conn, dest)
         cur.execute(f'DELETE FROM "{MLB_SCHEDULE_TABLE}" WHERE season_year = {p}', (year,))
         if rows:
             columns = _INSERT_COLUMNS
-            upsert_stmt = _build_mlb_schedule_upsert_statement()
+            upsert_stmt = _build_mlb_schedule_upsert_statement(dest)
             tuples = [tuple(r[c] for c in columns) for r in rows]
-            db.insert_many(cur, upsert_stmt, tuples)
+            db.insert_many(cur, upsert_stmt, tuples, dest)
         conn.commit()
     finally:
         conn.close()
     return len(rows)
 
 
-def mlb_schedule_table_metrics(*, database_url: str | None = None) -> dict[str, Any]:
-    ensure_mlb_schedule_table(database_url=database_url)
+def mlb_schedule_table_metrics(*, dest: db.Destination | None = None, database_url: str | None = None) -> dict[str, Any]:
+    ensure_mlb_schedule_table(dest=dest, database_url=database_url)
     q = f"""
     SELECT
         COUNT(*)::bigint AS row_count,
@@ -180,9 +183,9 @@ def mlb_schedule_table_metrics(*, database_url: str | None = None) -> dict[str, 
         MIN(official_date) AS min_official_date
     FROM {MLB_SCHEDULE_TABLE}
     """
-    conn = _connect(database_url)
+    conn = _connect(dest, database_url)
     try:
-        cur = db.cursor(conn)
+        cur = db.cursor(conn, dest)
         cur.execute(q)
         row = cur.fetchone()
     finally:
@@ -200,20 +203,22 @@ def sync_mlb_schedule_for_year(
     year: int | None = None,
     *,
     sport_id: int = 1,
+    dest: db.Destination | None = None,
     database_url: str | None = None,
 ) -> dict[str, Any]:
     """
     Fetch ``GET /schedule`` for ``season=year`` and replace ``mlb_schedule`` rows for that year.
 
     Includes all game types returned by the API (regular season, spring training, postseason, etc.).
+    ``dest`` overrides the env-configured backend (e.g. MotherDuck).
     """
     y = year if year is not None else datetime.now().year
-    ensure_mlb_schedule_table(database_url=database_url)
+    ensure_mlb_schedule_table(dest=dest, database_url=database_url)
 
     client = MlbApiClient()
     schedule = client.stats.get_schedule(sport_id=sport_id, season=y)
     rows = _rows_from_schedule_response(schedule, season_year=y)
-    written = replace_schedule_for_year(y, rows, database_url=database_url)
+    written = replace_schedule_for_year(y, rows, dest=dest, database_url=database_url)
 
     game_types: dict[str, int] = {}
     for r in rows:

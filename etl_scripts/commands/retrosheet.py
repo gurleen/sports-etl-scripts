@@ -26,6 +26,7 @@ from pathlib import Path
 import typer
 from loguru import logger
 
+from etl_scripts.db import Destination, LoadTarget
 from etl_scripts.retrosheet import (
     DEFAULT_CACHE_DIR,
     TABLE_NAME,
@@ -43,6 +44,14 @@ app = typer.Typer(help="Build Retrosheet play-by-play Parquet for the warehouse.
 
 DEFAULT_START_YEAR = 2000
 """Default to the modern era, where MLBAM id coverage is near-complete."""
+
+
+def _resolve_dest(target: LoadTarget, connection: str | None) -> Destination:
+    """Resolve the load destination, surfacing the MotherDuck-token error via typer."""
+    try:
+        return Destination.from_target(target, connection)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 @app.command()
@@ -102,23 +111,45 @@ def emit_ddl(
 
 @app.command()
 def load(
-    parquet: Path = typer.Argument(..., help="Parquet file produced by `build`."),
-    table_name: str = typer.Option(TABLE_NAME, help="Target table name."),
-    create_index: bool = typer.Option(True, help="Create secondary indexes after loading."),
+    parquet: Path = typer.Argument(..., help="Parquet file (or season-partitioned dir) produced by `build`."),
+    target: LoadTarget = typer.Option(
+        LoadTarget.postgres,
+        "--target",
+        case_sensitive=False,
+        help="Where to load: postgres (default), motherduck, or a local duckdb file.",
+    ),
+    connection: str | None = typer.Option(
+        None,
+        "--connection",
+        help="Override the destination: a Postgres URL, an 'md:' MotherDuck URI, or a DuckDB file path.",
+    ),
+    table_name: str = typer.Option(TABLE_NAME, help="Target table name (e.g. 'plays' on MotherDuck)."),
+    create_index: bool = typer.Option(True, help="Create secondary indexes after loading (Postgres only)."),
     replace_source: str | None = typer.Option(
         None, help="Delete existing rows with this source (e.g. 'retrosheet') before loading."
     ),
 ):
     """Create the table, load a Parquet into it, then build indexes.
 
-    Reads DATABASE_URL / POSTGRES_* from the environment (or repo .env), same as
-    the Statcast ETL. Indexes are created *after* the bulk load (far faster).
-    """
-    from etl_scripts.statcast import get_database_url
+    By default loads into Postgres (DATABASE_URL / POSTGRES_* from the environment
+    or repo .env), same as the Statcast ETL; indexes are built after the bulk load
+    (far faster). Use '--target motherduck' (token via the 'motherduck_token' env
+    var) or '--target duckdb' to load into a DuckDB/MotherDuck database instead,
+    optionally renaming the table with '--table-name'.
 
-    url = get_database_url()
-    ensure_table(url, table_name=table_name)
-    rows = load_parquet_to_db(parquet, url, table_name=table_name, replace_source=replace_source)
+    Examples:
+
+        # Postgres (default) -> retrosheet_plays
+        uv run etl retrosheet load data/retrosheet_plays_full.parquet
+
+        # MotherDuck -> plays
+        uv run etl retrosheet load data/retrosheet_plays_full.parquet --target motherduck --table-name plays
+    """
+    dest = _resolve_dest(target, connection)
+    ensure_table(dest.connection, table_name=table_name, backend=dest.backend)
+    rows = load_parquet_to_db(
+        parquet, dest.connection, table_name=table_name, replace_source=replace_source, backend=dest.backend
+    )
     if create_index:
-        create_indexes(url, table_name=table_name)
-    logger.info("Load complete: {} rows into {}", rows, table_name)
+        create_indexes(dest.connection, table_name=table_name, backend=dest.backend)
+    logger.info("Load complete: {} rows into {} ({})", rows, table_name, target.value)
