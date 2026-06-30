@@ -1,0 +1,44 @@
+# Publishes the schedule + play-by-play datasets to Hugging Face as Parquet.
+#
+# Writes mlb_schedule.parquet, retrosheet_plays.parquet and baserunning_events.parquet
+# to the dataset repo (HF_DATASET_REPO, default gurleen/baseball). Runs entirely
+# against a throwaway local DuckDB — no production database is touched.
+#
+# Required repository secret:
+#   HF_TOKEN — a write-scoped Hugging Face access token.
+
+name: HF Publish - PBP
+
+on:
+  schedule:
+    # 14:00 UTC daily (run before the statcast-extra job, which reads this snapshot).
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Re-fetch Final games from the last N days"
+        required: false
+        default: "3"
+
+concurrency:
+  group: hf-pbp
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET_REPO: gurleen/baseball
+      ETL_DB_BACKEND: duckdb
+      DUCKDB_PATH: warehouse.duckdb
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra hf
+      - name: Publish schedule + play-by-play
+        run: uv run --extra hf etl hf pbp --days "${{ github.event.inputs.days || '3' }}"

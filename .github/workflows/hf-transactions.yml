@@ -1,0 +1,43 @@
+# Publishes the transactions dataset to Hugging Face as Parquet.
+#
+# Writes mlb_transactions.parquet to the dataset repo (HF_DATASET_REPO, default
+# gurleen/baseball). Runs against a throwaway local DuckDB — no production
+# database is touched.
+#
+# Required repository secret:
+#   HF_TOKEN — a write-scoped Hugging Face access token.
+
+name: HF Publish - Transactions
+
+on:
+  schedule:
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Re-fetch the trailing N days of transactions"
+        required: false
+        default: "7"
+
+concurrency:
+  group: hf-transactions
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET_REPO: gurleen/baseball
+      ETL_DB_BACKEND: duckdb
+      DUCKDB_PATH: warehouse.duckdb
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra hf
+      - name: Publish transactions
+        run: uv run --extra hf etl hf transactions --days "${{ github.event.inputs.days || '7' }}"

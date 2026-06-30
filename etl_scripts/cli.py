@@ -21,6 +21,7 @@ import typer
 from etl_scripts.commands import (
     contracts,
     dbt,
+    hf,
     pbp,
     retrosheet,
     roster,
@@ -39,6 +40,7 @@ app.add_typer(roster.app, name="roster", help="MLB Stats API roster stints.")
 app.add_typer(contracts.app, name="contracts", help="Team payroll CSV -> mlb_contracts.")
 app.add_typer(retrosheet.app, name="retrosheet", help="Build historical Retrosheet play-by-play.")
 app.add_typer(dbt.app, name="dbt", help="Run dbt builds (needs the dbt extra).")
+app.add_typer(hf.app, name="hf", help="Publish datasets to Hugging Face as Parquet (needs the hf extra).")
 
 
 if __name__ == "__main__":

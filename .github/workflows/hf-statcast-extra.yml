@@ -1,0 +1,52 @@
+# Publishes the Savant gamefeed (statcast_extra) dataset to Hugging Face as Parquet.
+#
+# Writes season-partitioned statcast_<year>.parquet files to the dataset repo
+# (HF_DATASET_REPO, default gurleen/baseball). Game discovery reads the schedule
+# snapshot (mlb_schedule.parquet) that the PBP job publishes, so this is scheduled
+# to run after it. Runs without touching any production database.
+#
+# Required repository secret:
+#   HF_TOKEN — a write-scoped Hugging Face access token.
+
+name: HF Publish - Statcast Extra
+
+on:
+  schedule:
+    # 15:00 UTC — after the PBP job (14:00) so mlb_schedule.parquet is current.
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Fetch gamefeeds for Final games from the last N days"
+        required: false
+        default: "3"
+      year:
+        description: "Season (defaults to current year)"
+        required: false
+        default: ""
+
+concurrency:
+  group: hf-statcast-extra
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET_REPO: gurleen/baseball
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra hf
+      - name: Publish statcast_extra
+        run: |
+          YEAR_ARG=""
+          if [ -n "${{ github.event.inputs.year }}" ]; then
+            YEAR_ARG="--year ${{ github.event.inputs.year }}"
+          fi
+          uv run --extra hf etl hf statcast-extra --days "${{ github.event.inputs.days || '3' }}" $YEAR_ARG

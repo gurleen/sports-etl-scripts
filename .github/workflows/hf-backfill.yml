@@ -1,0 +1,59 @@
+# Full-season backfill for play-by-play + statcast_extra, published to Hugging Face.
+#
+# Loads every not-yet-present Final regular-season game for a season into
+# retrosheet_plays / baserunning_events / mlb_schedule and statcast_<year>, then
+# publishes the Parquet to the dataset repo. Manual only — this is a heavy,
+# occasional job (the nightly hf-* workflows keep things current afterward).
+#
+# Required repository secret:
+#   HF_TOKEN — a write-scoped Hugging Face access token.
+
+name: HF Backfill - Season (PBP + Statcast)
+
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: "Season to backfill (defaults to current year)"
+        required: false
+        default: ""
+      repo:
+        description: "Target Hugging Face dataset repo"
+        required: false
+        default: "gurleen/baseball"
+
+concurrency:
+  group: hf-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET_REPO: ${{ github.event.inputs.repo || 'gurleen/baseball' }}
+      ETL_DB_BACKEND: duckdb
+      DUCKDB_PATH: warehouse.duckdb
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra hf
+      - name: Resolve year
+        id: year
+        run: echo "value=${{ github.event.inputs.year || '' }}" >> "$GITHUB_OUTPUT"
+      - name: Backfill play-by-play (schedule + retrosheet_plays + baserunning_events)
+        run: |
+          YEAR_ARG=""
+          if [ -n "${{ steps.year.outputs.value }}" ]; then YEAR_ARG="--year ${{ steps.year.outputs.value }}"; fi
+          uv run --extra hf etl hf pbp --backfill $YEAR_ARG
+      - name: Backfill statcast_extra
+        run: |
+          YEAR_ARG=""
+          if [ -n "${{ steps.year.outputs.value }}" ]; then YEAR_ARG="--year ${{ steps.year.outputs.value }}"; fi
+          uv run --extra hf etl hf statcast-extra --backfill $YEAR_ARG
