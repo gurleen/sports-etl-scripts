@@ -17,6 +17,10 @@ on:
         description: "Season to backfill (defaults to current year)"
         required: false
         default: ""
+      repo:
+        description: "Target Hugging Face dataset repo"
+        required: false
+        default: "gurleen/baseball"
 
 concurrency:
   group: hf-backfill
@@ -28,7 +32,7 @@ jobs:
     timeout-minutes: 350
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      HF_DATASET_REPO: gurleen/baseball
+      HF_DATASET_REPO: ${{ github.event.inputs.repo || 'gurleen/baseball' }}
       ETL_DB_BACKEND: duckdb
       DUCKDB_PATH: warehouse.duckdb
       HF_HUB_DISABLE_PROGRESS_BARS: "1"
