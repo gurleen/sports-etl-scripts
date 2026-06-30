@@ -26,6 +26,19 @@ from loguru import logger
 
 DEFAULT_REPO = "gurleen/baseball"
 
+# Dataset-viewer subsets: each Parquet table becomes its own ``config_name`` so
+# the Hub Data Studio shows them separately instead of merging every file into
+# one default dataset. ``statcast`` globs the season-partitioned files into a
+# single subset (new seasons are picked up automatically). Order is preserved in
+# the card; the first entry is the viewer's default subset.
+DATASET_CONFIGS: list[tuple[str, str]] = [
+    ("mlb_schedule", "mlb_schedule.parquet"),
+    ("retrosheet_plays", "retrosheet_plays.parquet"),
+    ("baserunning_events", "baserunning_events.parquet"),
+    ("mlb_transactions", "mlb_transactions.parquet"),
+    ("statcast", "statcast_*.parquet"),
+]
+
 
 # ---------------------------------------------------------------------------
 # Config + Hub client helpers
@@ -66,6 +79,49 @@ def _not_found_errors() -> tuple[type[BaseException], ...]:
 def ensure_repo() -> None:
     """Create the dataset repo if it doesn't exist yet (idempotent)."""
     _api().create_repo(repo_id=hf_repo(), repo_type="dataset", exist_ok=True)
+
+
+def _dataset_card() -> str:
+    """The ``README.md`` with a ``configs:`` block so each table is its own subset."""
+    lines = ["---", "configs:"]
+    for name, pattern in DATASET_CONFIGS:
+        lines.append(f"- config_name: {name}")
+        lines.append(f"  data_files: {pattern}")
+    lines += [
+        "---",
+        "",
+        "# Baseball data",
+        "",
+        "MLB datasets published as Parquet, one **subset** per table (select it in the",
+        "Data Studio dropdown). Maintained by the `etl hf` GitHub Actions jobs; each run",
+        "merges newly-fetched rows into the existing file (dedup on each table's primary",
+        "key). The `statcast` subset combines the season-partitioned `statcast_<year>`",
+        "files.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def ensure_dataset_card(*, force: bool = False) -> bool:
+    """Publish the dataset card that defines the per-table subsets.
+
+    No-op when a ``README.md`` already exists unless ``force`` is set. Returns
+    whether the card was uploaded.
+    """
+    api = _api()
+    ensure_repo()
+    exists = api.file_exists(repo_id=hf_repo(), filename="README.md", repo_type="dataset")
+    if exists and not force:
+        return False
+    api.upload_file(
+        path_or_fileobj=_dataset_card().encode("utf-8"),
+        path_in_repo="README.md",
+        repo_id=hf_repo(),
+        repo_type="dataset",
+        commit_message="Set dataset-viewer subsets (one per table)",
+    )
+    logger.info("{} dataset card on {} (per-table subsets)", "Updated" if exists else "Created", hf_repo())
+    return True
 
 
 def download_existing(filename: str, work_dir: Path) -> Path | None:

@@ -21,6 +21,21 @@ One Parquet file per table, except `statcast_extra`, which is season-partitioned
 **Not published** (intentionally out of scope): the original `statcast` pitch
 table, `mlb_roster_entries`, and `mlb_contracts`.
 
+### Subsets in the Data Studio
+
+The dataset card (`README.md`) carries a `configs:` block so the Hub viewer shows
+each table as its own **subset** instead of merging every Parquet file into one
+default dataset. The season-partitioned `statcast_<year>.parquet` files are
+globbed into a single `statcast` subset. The card is created automatically on the
+first upload (and is left alone afterwards); to (re)publish it manually — e.g.
+after adding a new table — run:
+
+```bash
+uv run --extra hf etl hf card        # overwrites the card with the current subsets
+```
+
+The subset config lives in `hf_sync.DATASET_CONFIGS`.
+
 ## How accumulation works
 
 Each run:

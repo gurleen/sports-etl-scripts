@@ -53,6 +53,26 @@ def _force_duckdb_staging() -> None:
     os.environ.setdefault("DUCKDB_PATH", str(_work_dir() / "warehouse.duckdb"))
 
 
+def _publish_card(no_upload: bool) -> None:
+    """Ensure the dataset card (per-table subsets) exists after an upload run."""
+    if no_upload:
+        return
+    from etl_scripts import hf_sync
+
+    hf_sync.ensure_dataset_card()
+
+
+@app.command()
+def card(
+    force: bool = typer.Option(True, "--force/--no-force", help="Overwrite an existing README.md card."),
+):
+    """Publish/refresh the dataset card so each Parquet table is its own Data Studio subset."""
+    from etl_scripts import hf_sync
+
+    changed = hf_sync.ensure_dataset_card(force=force)
+    logger.info("Dataset card {}", "published" if changed else "already present (use --force to overwrite)")
+
+
 @app.command()
 def pbp(
     days: int = typer.Option(3, help="Re-fetch Final games from the last N days."),
@@ -101,6 +121,7 @@ def pbp(
         hf_sync.publish_table(con, BASERUNNING_TABLE, "baserunning_events.parquet", work, upload=not no_upload)
     finally:
         con.close()
+    _publish_card(no_upload)
 
 
 @app.command()
@@ -137,6 +158,7 @@ def transactions(
         )
     finally:
         con.close()
+    _publish_card(no_upload)
 
 
 @app.command("statcast-extra")
@@ -161,6 +183,7 @@ def statcast_extra(
         pause_sec=pause_sec, fetch_attempts=fetch_attempts,
     )
     logger.info("statcast-extra publish complete: {}", res)
+    _publish_card(no_upload)
 
 
 @app.command()
@@ -205,3 +228,4 @@ def retrosheet(
         hf_sync.publish_table(con, rs.TABLE_NAME, "retrosheet_plays.parquet", work, upload=not no_upload)
     finally:
         con.close()
+    _publish_card(no_upload)
