@@ -75,12 +75,17 @@ def card(
 
 @app.command()
 def pbp(
-    days: int = typer.Option(3, help="Re-fetch Final games from the last N days."),
+    days: int = typer.Option(3, help="Re-fetch Final games from the last N days (recent mode)."),
     year: int | None = typer.Option(None, help="Season (defaults to current year)."),
+    backfill: bool = typer.Option(False, "--backfill", help="Load every not-yet-loaded Final game for the whole season (ignores --days)."),
     workers: int = typer.Option(8, help="Concurrent fetch workers (forced to 1 on DuckDB)."),
     no_upload: bool = typer.Option(False, "--no-upload", help="Export Parquet locally but skip the Hub upload."),
 ):
-    """Sync schedule + recent play-by-play, publish mlb_schedule / retrosheet_plays / baserunning_events."""
+    """Sync schedule + play-by-play, publish mlb_schedule / retrosheet_plays / baserunning_events.
+
+    Default re-fetches the last ``--days`` of Final games. With ``--backfill`` it loads
+    every Final regular-season game for the season that isn't already present.
+    """
     _force_duckdb_staging()
     work = _work_dir()
     from etl_scripts import db, hf_sync
@@ -108,10 +113,14 @@ def pbp(
 
     logger.info("Syncing schedule for {}", y)
     sync_mlb_schedule_for_year(y)
-    logger.info("Loading recent PBP {}..{}", start, today)
-    summary = load_season(
-        y, only_missing=False, start_date=start, end_date=today, max_workers=workers
-    )
+    if backfill:
+        logger.info("Backfilling all not-yet-loaded Final games for {}", y)
+        summary = load_season(y, only_missing=True, max_workers=workers)
+    else:
+        logger.info("Loading recent PBP {}..{}", start, today)
+        summary = load_season(
+            y, only_missing=False, start_date=start, end_date=today, max_workers=workers
+        )
     logger.info("PBP load complete: {}", {k: v for k, v in summary.items() if k != "failures"})
 
     con = db.connect()
@@ -163,23 +172,25 @@ def transactions(
 
 @app.command("statcast-extra")
 def statcast_extra(
-    days: int = typer.Option(3, help="Fetch gamefeeds for Final games from the last N days."),
+    days: int = typer.Option(3, help="Fetch gamefeeds for Final games from the last N days (recent mode)."),
     year: int | None = typer.Option(None, help="Season (defaults to current year)."),
+    backfill: bool = typer.Option(False, "--backfill", help="Fetch every not-yet-present Final game for the whole season (ignores --days)."),
     pause_sec: float = typer.Option(0.0, help="Pause between gamefeed fetches."),
     fetch_attempts: int = typer.Option(4, help="Retries per gamefeed (Savant /gf can truncate large bodies)."),
     no_upload: bool = typer.Option(False, "--no-upload", help="Write Parquet locally but skip the Hub upload."),
 ):
     """Fetch missing Savant gamefeeds and publish statcast_<year>.parquet.
 
-    Game discovery uses the schedule snapshot (mlb_schedule.parquet) on the Hub —
-    run ``etl hf pbp`` first so that file exists.
+    Default fetches the last ``--days`` of Final games; ``--backfill`` fetches every
+    Final regular-season game for the season not already present. Game discovery uses
+    the schedule snapshot (mlb_schedule.parquet) on the Hub — run ``etl hf pbp`` first.
     """
     work = _work_dir()
     from etl_scripts import hf_sync
 
     y = year or date.today().year
     res = hf_sync.collect_statcast_extra(
-        year=y, days=days, work_dir=work, upload=not no_upload,
+        year=y, days=(None if backfill else days), work_dir=work, upload=not no_upload,
         pause_sec=pause_sec, fetch_attempts=fetch_attempts,
     )
     logger.info("statcast-extra publish complete: {}", res)

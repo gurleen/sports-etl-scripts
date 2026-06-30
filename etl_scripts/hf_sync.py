@@ -231,7 +231,7 @@ def publish_table(
 def collect_statcast_extra(
     *,
     year: int,
-    days: int,
+    days: int | None,
     work_dir: Path,
     upload: bool = True,
     pause_sec: float = 0.0,
@@ -259,21 +259,21 @@ def collect_statcast_extra(
             "mlb_schedule.parquet not found on the Hub; run the pbp job first so the "
             "schedule snapshot exists, then re-run statcast-extra."
         )
-    today = date.today()
-    start = today - timedelta(days=days)
     sched = pl.read_parquet(sched_path)
+    flt = (
+        (pl.col("season_year") == year)
+        & (pl.col("game_type") == "R")
+        & (pl.col("coded_game_state") == "F")
+    )
+    if days is None:
+        window_desc = "full season"  # backfill: every Final regular-season game
+    else:
+        today = date.today()
+        start = today - timedelta(days=days)
+        flt = flt & (pl.col("official_date") >= start) & (pl.col("official_date") <= today)
+        window_desc = f"{start}..{today}"
     candidates: list[int] = (
-        sched.filter(
-            (pl.col("season_year") == year)
-            & (pl.col("game_type") == "R")
-            & (pl.col("coded_game_state") == "F")
-            & (pl.col("official_date") >= start)
-            & (pl.col("official_date") <= today)
-        )
-        .select("game_pk")
-        .unique()
-        .to_series()
-        .to_list()
+        sched.filter(flt).select("game_pk").unique().to_series().to_list()
     )
 
     # 2. existing rows already on the Hub for this season.
@@ -282,8 +282,8 @@ def collect_statcast_extra(
     have = set(existing["game_pk"].to_list()) if existing is not None else set()
     todo = [int(g) for g in candidates if int(g) not in have]
     logger.info(
-        "statcast_extra year={} window={}..{}: {} candidate games, {} already present, {} to fetch",
-        year, start, today, len(candidates), len(have), len(todo),
+        "statcast_extra year={} window={}: {} candidate games, {} already present, {} to fetch",
+        year, window_desc, len(candidates), len(have), len(todo),
     )
 
     # 3. fetch + parse the missing gamefeeds (reuses the existing HTTP/pydantic path).
