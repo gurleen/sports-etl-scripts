@@ -179,6 +179,7 @@ def collect_statcast_extra(
     work_dir: Path,
     upload: bool = True,
     pause_sec: float = 0.0,
+    fetch_attempts: int = 4,
 ) -> dict[str, Any]:
     """Fetch missing Savant gamefeeds and (re)publish ``statcast_<year>.parquet``.
 
@@ -235,13 +236,27 @@ def collect_statcast_extra(
     new_rows: list[dict[str, Any]] = []
     loaded = failed = 0
     for i, gpk in enumerate(todo):
-        try:
-            feed = fetch_and_parse_gamefeed(gpk)
+        # The Savant /gf bodies are large (1-2 MB) and occasionally arrive
+        # truncated (IncompleteRead); a couple of retries clears the transient.
+        feed = None
+        last_exc: Exception | None = None
+        for attempt in range(1, max(1, fetch_attempts) + 1):
+            try:
+                feed = fetch_and_parse_gamefeed(gpk)
+                break
+            except Exception as exc:  # noqa: BLE001 - isolate per-game failures
+                last_exc = exc
+                if attempt < fetch_attempts:
+                    time.sleep(min(2.0 * attempt, 5.0))
+        if feed is None:
+            logger.error(
+                "game_pk={}: failed to fetch/parse gamefeed after {} attempts: {}",
+                gpk, fetch_attempts, last_exc,
+            )
+            failed += 1
+        else:
             new_rows.extend(_rows_for_game(gpk, feed))
             loaded += 1
-        except Exception as exc:  # noqa: BLE001 - isolate per-game failures
-            logger.error("game_pk={}: failed to fetch/parse gamefeed: {}", gpk, exc)
-            failed += 1
         if pause_sec > 0 and i + 1 < len(todo):
             time.sleep(pause_sec)
 
