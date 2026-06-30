@@ -29,6 +29,9 @@ dbt = [
     "dbt-postgres>=1.9.0,<2.0.0",
     "dbt-duckdb>=1.9.0,<2.0.0",
 ]
+hf = [
+    "huggingface_hub>=0.27.0",
+]
 
 [project.scripts]
 etl = "etl_scripts.cli:app"

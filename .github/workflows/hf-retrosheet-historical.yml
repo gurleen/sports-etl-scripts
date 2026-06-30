@@ -1,0 +1,63 @@
+# One-off / occasional historical Retrosheet build, published to Hugging Face.
+#
+# Builds the historical Retrosheet play-by-play and merges it into
+# retrosheet_plays.parquet (replacing only the 'retrosheet' source rows, leaving
+# the nightly 'mlbam' rows intact). Manual only — this is a large, rarely-changing
+# backfill, not a nightly job.
+#
+# Required repository secret:
+#   HF_TOKEN — a write-scoped Hugging Face access token.
+
+name: HF Publish - Retrosheet (historical)
+
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Build every season (single plays.zip)"
+        type: boolean
+        required: false
+        default: false
+      start_year:
+        description: "First season (range mode; blank = earliest available)"
+        required: false
+        default: ""
+      end_year:
+        description: "Last season (range mode; blank = current year)"
+        required: false
+        default: ""
+
+concurrency:
+  group: hf-retrosheet-historical
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_DATASET_REPO: gurleen/baseball
+      ETL_DB_BACKEND: duckdb
+      DUCKDB_PATH: warehouse.duckdb
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --extra hf
+      - name: Build + publish historical Retrosheet
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.full }}" = "true" ]; then
+            ARGS="--full"
+          else
+            if [ -n "${{ github.event.inputs.start_year }}" ]; then
+              ARGS="$ARGS --start-year ${{ github.event.inputs.start_year }}"
+            fi
+            if [ -n "${{ github.event.inputs.end_year }}" ]; then
+              ARGS="$ARGS --end-year ${{ github.event.inputs.end_year }}"
+            fi
+          fi
+          uv run --extra hf etl hf retrosheet $ARGS

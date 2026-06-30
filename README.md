@@ -4,7 +4,9 @@ Baseball ETL: ingest MLB data into a Postgres warehouse (running
 [pg_duckdb](https://github.com/duckdb/pg_duckdb)) and transform it into analytics
 marts with [dbt](https://docs.getdbt.com/). Managed with [uv](https://docs.astral.sh/uv/).
 
-There is **one orchestrator (cron)** and **one CLI entrypoint (`etl`)**.
+Datasets are also published as Parquet to a [Hugging Face](https://huggingface.co/datasets/gurleen/baseball)
+dataset repo by scheduled GitHub Actions (see [Hugging Face publishing](#hugging-face-publishing)).
+There is **one CLI entrypoint (`etl`)**.
 
 ## The `etl` CLI
 
@@ -27,13 +29,27 @@ uv run --extra dbt etl dbt build                         # ad-hoc dbt rebuild
 The `--extra dbt` flag installs the dbt adapters; only the commands that rebuild
 marts (`statcast`/`pbp` recent updates, `etl dbt`) need it.
 
-## Scheduling
+## Hugging Face publishing
 
-Cron is the scheduler — see [`crontab.sh`](crontab.sh) (install with `crontab -e`).
-Two ingest jobs trigger dbt themselves after loading: `etl statcast update-recent`
-rebuilds the Statcast marts (`post_statcast_ingest` selector), and
-`etl pbp update-recent` rebuilds the PBP season-stat marts. Verify the cron jobs
-by hand with [`scripts/test_crontab_jobs.sh`](scripts/test_crontab_jobs.sh).
+The scheduled jobs now publish Parquet to the Hugging Face dataset repo
+`gurleen/baseball` (one file per table) instead of writing to a Postgres
+warehouse. They run in GitHub Actions ([`.github/workflows/hf-*.yml`](.github/workflows/))
+and stage everything in a throwaway local DuckDB — no database is touched. Each
+run seeds from the Parquet already on the Hub, merges newly-fetched rows, and
+re-uploads, so history accumulates.
+
+```bash
+uv run --extra hf etl hf pbp --days 3          # mlb_schedule / retrosheet_plays / baserunning_events
+uv run --extra hf etl hf transactions --days 7 # mlb_transactions.parquet
+uv run --extra hf etl hf statcast-extra --days 3   # statcast_<year>.parquet (Savant gamefeed)
+uv run --extra hf etl hf retrosheet --full     # one-off historical Retrosheet backfill
+```
+
+Add `--no-upload` to export the Parquet locally without pushing to the Hub. The
+workflows need a write-scoped `HF_TOKEN` repository secret. See
+[docs/huggingface.md](docs/huggingface.md) for details, scheduling, and the
+datasets that are intentionally **not** published (`statcast`, `mlb_roster_entries`,
+`mlb_contracts`).
 
 ## dbt
 
@@ -52,6 +68,7 @@ DUCKDB_PATH=./dev.duckdb uv run python -m etl_scripts.validate_local_pipeline ru
 
 ## Docs
 
+- [docs/huggingface.md](docs/huggingface.md) — Parquet publishing to Hugging Face (GitHub Actions)
 - [docs/dbt.md](docs/dbt.md) — warehouse transforms, selectors, CLI/dbt integration
 - [docs/lineage.md](docs/lineage.md) — ingest → warehouse → dbt lineage
 - [docs/mlbam_pbp.md](docs/mlbam_pbp.md), [docs/retrosheet.md](docs/retrosheet.md) — play-by-play
