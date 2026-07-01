@@ -31,6 +31,7 @@ in sync.
 
 from __future__ import annotations
 
+import shutil
 import sys
 import zipfile
 from datetime import datetime
@@ -377,9 +378,12 @@ def _extract_csv_from_zip(zip_path: Path, csv_path: Path) -> Path:
         members = [m for m in zf.namelist() if m.lower().endswith(".csv")]
         if not members:
             raise ValueError(f"{zip_path.name} contains no CSV")
-        with zf.open(members[0]) as src:
-            csv_path.write_bytes(src.read())
-    logger.debug("Extracted {}", csv_path.name)
+        logger.info("Extracting {} from {}", members[0], zip_path.name)
+        # Stream the member to disk instead of buffering the whole (multi-GB for the
+        # full bundle) CSV in memory, which can OOM a small host.
+        with zf.open(members[0]) as src, csv_path.open("wb") as out:
+            shutil.copyfileobj(src, out, length=1024 * 1024)
+    logger.info("Extracted {} ({})", csv_path.name, _format_bytes(csv_path.stat().st_size))
     return csv_path
 
 
@@ -440,7 +444,7 @@ def download_all_plays(cache_dir: Path = DEFAULT_CACHE_DIR) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     csv_path = cache_dir / "plays.csv"
     if csv_path.exists():
-        logger.debug("Using cached {}", csv_path.name)
+        logger.info("Using cached {} ({})", csv_path.name, _format_bytes(csv_path.stat().st_size))
         return csv_path
 
     zip_path = cache_dir / "plays.zip"
