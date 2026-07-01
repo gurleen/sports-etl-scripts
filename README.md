@@ -43,8 +43,13 @@ uv run --extra hf etl hf pbp --days 3          # mlb_schedule / retrosheet_plays
 uv run --extra hf etl hf transactions --days 7 # mlb_transactions.parquet
 uv run --extra hf etl hf statcast-extra --days 3   # statcast_<year>.parquet (Savant gamefeed)
 uv run --extra hf etl hf retrosheet --full     # one-off historical Retrosheet backfill
+
+uv run --extra hf etl hf pbp --backfill --year 2026          # full-season backfill (skips loaded games)
+uv run --extra hf etl hf statcast-extra --backfill --year 2026
 ```
 
+`--backfill` loads every not-yet-present Final regular-season game for the season
+(there's also a manual `hf-backfill.yml` workflow that runs both).
 Add `--no-upload` to export the Parquet locally without pushing to the Hub. The
 workflows need a write-scoped `HF_TOKEN` repository secret. See
 [docs/huggingface.md](docs/huggingface.md) for details, scheduling, and the

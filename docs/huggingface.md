@@ -56,10 +56,14 @@ instead discovers Final, regular-season game_pks from `mlb_schedule.parquet`
 ## CLI
 
 ```bash
-# nightly-style jobs
+# nightly-style jobs (recent window)
 uv run --extra hf etl hf pbp --days 3
 uv run --extra hf etl hf transactions --days 7
 uv run --extra hf etl hf statcast-extra --days 3 [--year 2026]
+
+# full-season backfill (every not-yet-present Final regular-season game)
+uv run --extra hf etl hf pbp --backfill --year 2026
+uv run --extra hf etl hf statcast-extra --backfill --year 2026
 
 # one-off historical Retrosheet backfill (replaces the 'retrosheet' source rows)
 uv run --extra hf etl hf retrosheet --full
@@ -68,6 +72,11 @@ uv run --extra hf etl hf retrosheet --start-year 2000 --end-year 2024
 # local dry run: write the Parquet but don't upload to the Hub
 uv run --extra hf etl hf transactions --days 1 --no-upload
 ```
+
+`--backfill` ignores `--days` and loads/fetches every Final regular-season game
+for the season that isn't already present on the Hub (idempotent — safe to re-run;
+already-loaded games are skipped). `statcast-extra --backfill` still needs an
+up-to-date `mlb_schedule.parquet`, so run the pbp backfill first.
 
 Useful env vars: `HF_DATASET_REPO` (target repo), `HF_TOKEN` (write token),
 `DUCKDB_PATH` (staging file), `HF_WORK_DIR` (scratch dir for downloads/exports).
@@ -80,9 +89,18 @@ Useful env vars: `HF_DATASET_REPO` (target repo), `HF_TOKEN` (write token),
 | [`hf-transactions.yml`](../.github/workflows/hf-transactions.yml) | daily 14:30 UTC + manual | transactions |
 | [`hf-statcast-extra.yml`](../.github/workflows/hf-statcast-extra.yml) | daily 15:00 UTC + manual | statcast_\<year\> |
 | [`hf-retrosheet-historical.yml`](../.github/workflows/hf-retrosheet-historical.yml) | manual only | retrosheet_plays (`retrosheet` source) |
+| [`hf-backfill.yml`](../.github/workflows/hf-backfill.yml) | manual only | full-season pbp + statcast_\<year\> |
 
 The statcast-extra job is scheduled after the PBP job so it reads a fresh
 `mlb_schedule.parquet`.
+
+### Full-season backfill workflow
+
+`hf-backfill.yml` runs `etl hf pbp --backfill` then `etl hf statcast-extra
+--backfill` for one season. Trigger it from the Actions tab (or the API) with
+inputs `year` (defaults to current) and `repo` (target dataset repo, defaults to
+`gurleen/baseball` — set it to `gurleen/baseball-test` to backfill the test repo).
+It's a heavy one-off; the nightly workflows keep things current afterward.
 
 ## Setup
 
