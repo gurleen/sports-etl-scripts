@@ -154,6 +154,8 @@ def download_existing(filename: str, work_dir: Path) -> Path | None:
 
 def upload_parquet(local_path: Path, filename: str) -> None:
     """Upload a local Parquet file to the dataset repo as ``filename``."""
+    size = local_path.stat().st_size if local_path.exists() else 0
+    logger.info("Uploading {} ({:.1f} MB) to {} ...", filename, size / 1024 / 1024, hf_repo())
     ensure_repo()
     _api().upload_file(
         path_or_fileobj=str(local_path),
