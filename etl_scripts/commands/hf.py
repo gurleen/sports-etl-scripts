@@ -227,9 +227,13 @@ def retrosheet(
 
     rs.ensure_table(path, backend="duckdb")
     years = None if full else rs.season_range(start_year, end_year)
+    scope = "full all-season bundle" if full else f"seasons {years[0]}..{years[-1]}"
+    logger.info("Building Retrosheet dataset ({}) — this can take several minutes...", scope)
     lf = rs.build_dataset(years=years, use_full_bundle=full)
     build_parquet = work / "retrosheet_build.parquet"
+    logger.info("Writing built dataset to {} (streaming to Parquet)...", build_parquet)
     rs.write_dataset(lf, build_parquet)
+    logger.info("Loading built Parquet into staging DuckDB (replacing source={!r})...", rs.SOURCE_LABEL)
     rs.load_parquet_to_db(
         build_parquet, path, backend="duckdb", replace_source=rs.SOURCE_LABEL
     )
