@@ -186,11 +186,22 @@ def seed_table_from_hf(con: Any, table: str, ddl: str, filename: str, work_dir: 
     local = download_existing(filename, work_dir)
     if local is None:
         return 0
-    con.execute(
-        f"INSERT INTO {table} BY NAME SELECT * FROM read_parquet('{_parquet_literal(local)}')"
-    )
+    src = f"read_parquet('{_parquet_literal(local)}')"
+    source_rows = con.execute(f"SELECT count(*) FROM {src}").fetchone()[0]
+    before = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+    # OR IGNORE: an existing Hub file may itself carry duplicate primary keys (e.g.
+    # a table written before this dedup existed); keep the first row per key and
+    # drop the rest so seeding — and thus the re-published, deduped file — never errors.
+    con.execute(f"INSERT OR IGNORE INTO {table} BY NAME SELECT * FROM {src}")
     n = con.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-    logger.info("Seeded {} rows into {} from {}", n, table, filename)
+    dropped = int(source_rows) - (int(n) - int(before))
+    if dropped > 0:
+        logger.warning(
+            "Seeded {} rows into {} from {} ({} duplicate-key row(s) dropped)",
+            n, table, filename, dropped,
+        )
+    else:
+        logger.info("Seeded {} rows into {} from {}", n, table, filename)
     return int(n)
 
 
