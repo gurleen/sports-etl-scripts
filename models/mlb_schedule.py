@@ -33,7 +33,7 @@ class ScheduleTeamRef(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     id: int
-    name: str
+    name: str | None = None
 
 
 class ScheduleTeamSide(BaseModel):
@@ -58,8 +58,8 @@ class ScheduleGameTeams(BaseModel):
 class ScheduleVenue(BaseModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    id: int
-    name: str
+    id: int | None = None
+    name: str | None = None
 
 
 class ScheduleGame(BaseModel):

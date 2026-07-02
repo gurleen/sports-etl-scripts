@@ -97,6 +97,12 @@ def ensure_mlb_schedule_table(*, dest: db.Destination | None = None, database_ur
 
 
 def _row_for_game(game: ScheduleGame, *, season_year: int) -> dict[str, Any]:
+    # The Stats API occasionally omits `name` on exhibition opponents (e.g. a
+    # spring-training game vs. a national team) that aren't full MLB franchises,
+    # and omits venue id/name entirely for one-off temporary venues (e.g. the
+    # Field of Dreams games), returning {"link": "/api/v1/venues/null"}.
+    away_name = game.teams.away.team.name or f"Team {game.teams.away.team.id}"
+    home_name = game.teams.home.team.name or f"Team {game.teams.home.team.id}"
     return {
         "game_pk": game.game_pk,
         "season_year": season_year,
@@ -106,15 +112,15 @@ def _row_for_game(game: ScheduleGame, *, season_year: int) -> dict[str, Any]:
         "detailed_state": game.status.detailed_state,
         "coded_game_state": game.status.coded_game_state,
         "away_team_id": game.teams.away.team.id,
-        "away_team_name": game.teams.away.team.name,
+        "away_team_name": away_name,
         "away_score": game.teams.away.score,
         "away_is_winner": game.teams.away.is_winner,
         "home_team_id": game.teams.home.team.id,
-        "home_team_name": game.teams.home.team.name,
+        "home_team_name": home_name,
         "home_score": game.teams.home.score,
         "home_is_winner": game.teams.home.is_winner,
-        "venue_id": game.venue.id,
-        "venue_name": game.venue.name,
+        "venue_id": game.venue.id if game.venue.id is not None else 0,
+        "venue_name": game.venue.name or "Unknown Venue",
         "game_type": game.game_type,
         "series_description": game.series_description,
         "double_header": game.double_header,
