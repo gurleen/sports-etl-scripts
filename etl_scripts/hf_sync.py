@@ -241,6 +241,87 @@ def publish_table(
 # ---------------------------------------------------------------------------
 # statcast_extra collector (polars; decoupled from the excluded `statcast` table)
 # ---------------------------------------------------------------------------
+
+# Columns dropped from the published statcast_<year>.parquet only (the Postgres
+# statcast_extra table and PitchData model keep the full field set). Each is
+# either an exact duplicate of another kept column, trivially derivable from
+# one (inches = feet * 12), constant across every row in a season-partitioned
+# file, or a denormalized name that's 1:1 with a *_id column.
+STATCAST_EXTRA_DROP_COLUMNS: tuple[str, ...] = (
+    "plate_x_poly",  # == px
+    "plate_z_poly",  # == pz
+    "pfx_x",  # == break_x_feet
+    "pfx_x_no_abs",  # == break_x_feet
+    "pfx_z",  # == break_z_induced_feet
+    "pfx_z_with_gravity",  # == break_z_with_gravity_feet
+    "savant_is_in_zone",  # == is_in_zone
+    "result",  # == events (kept, as an Enum)
+    "break_x_inches",  # == break_x_feet * 12
+    "break_z_induced_inches",  # == break_z_induced_feet * 12
+    "break_z_with_gravity_inches",  # == break_z_with_gravity_feet * 12
+    "year",  # constant per file (statcast_<year>.parquet is already year-partitioned)
+    "pitcher_name",  # 1:1 with pitcher; join a players table for display names
+    "batter_name",  # 1:1 with batter
+    "catcher_name",  # 1:1 with catcher
+    "description",  # mostly redundant with pitch_call/call_name at pitch grain
+)
+
+
+def _statcast_extra_int_types(pl: Any) -> dict[str, Any]:
+    """Narrowest integer width each column can hold with headroom for future growth.
+
+    Rule-bounded game state (balls/strikes/outs/inning/zone/...) fits Int8. MLBAM
+    player ids and game_pk are monotonically-increasing global counters (currently
+    in the hundreds of thousands) that keep growing for decades, so they get Int32
+    rather than being cut to today's exact range. Team ids (108-158) already exceed
+    Int8's range, so they get Int16.
+    """
+    return {
+        "sport_id": pl.Int8,
+        "inning": pl.Int8,
+        "ab_number": pl.Int16,  # extra-inning marathons can exceed Int8's 127
+        "pitch_number": pl.Int8,
+        "cap_index": pl.Int16,
+        "outs": pl.Int8,
+        "strikes": pl.Int8,
+        "balls": pl.Int8,
+        "pre_strikes": pl.Int8,
+        "pre_balls": pl.Int8,
+        "sz_width": pl.Int8,
+        "zone": pl.Int8,
+        "spin_rate": pl.Int16,
+        "batter": pl.Int32,
+        "pitcher": pl.Int32,
+        "catcher": pl.Int32,
+        "abs_challenge_challenging_player_id": pl.Int32,
+        "team_batting_id": pl.Int16,
+        "team_fielding_id": pl.Int16,
+        "abs_challenge_challenge_team_id": pl.Int16,
+        "game_pk": pl.Int32,
+    }
+
+
+def _prepare_statcast_extra_frame(df: Any) -> Any:
+    """Drop redundant columns, shrink ``play_id`` to raw bytes, and narrow integer widths.
+
+    Applied to both the existing Hub frame and newly-fetched rows before they're
+    combined, so a pre-migration (wide/Int64) Hub file and freshly narrowed rows
+    end up on the same schema.
+    """
+    import polars as pl
+
+    df = df.drop([c for c in STATCAST_EXTRA_DROP_COLUMNS if c in df.columns])
+    if "play_id" in df.columns and df.schema["play_id"] != pl.Binary:
+        df = df.with_columns(
+            pl.col("play_id").str.replace_all("-", "").str.decode("hex").alias("play_id")
+        )
+    int_types = _statcast_extra_int_types(pl)
+    casts = [pl.col(c).cast(t) for c, t in int_types.items() if c in df.columns and df.schema[c] != t]
+    if casts:
+        df = df.with_columns(casts)
+    return df
+
+
 def collect_statcast_extra(
     *,
     year: int,
@@ -249,6 +330,7 @@ def collect_statcast_extra(
     upload: bool = True,
     pause_sec: float = 0.0,
     fetch_attempts: int = 4,
+    workers: int = 1,
 ) -> dict[str, Any]:
     """Fetch missing Savant gamefeeds and (re)publish ``statcast_<year>.parquet``.
 
@@ -257,7 +339,9 @@ def collect_statcast_extra(
     regular-season game_pks from ``mlb_schedule.parquet`` (published by the pbp
     job), skip the ones already present in ``statcast_<year>.parquet``, fetch the
     rest via the existing gamefeed fetch/parse code, merge, dedup on
-    ``(game_pk, play_id)`` and re-upload.
+    ``(game_pk, play_id)`` and re-upload. ``workers`` fetches gamefeeds
+    concurrently (each game is an independent HTTP call; no shared DB connection
+    to bound, unlike the mlbam pbp loader).
     """
     import polars as pl
 
@@ -292,6 +376,8 @@ def collect_statcast_extra(
     # 2. existing rows already on the Hub for this season.
     existing_path = download_existing(extra_file, work_dir)
     existing = pl.read_parquet(existing_path) if existing_path else None
+    if existing is not None:
+        existing = _prepare_statcast_extra_frame(existing)
     have = set(existing["game_pk"].to_list()) if existing is not None else set()
     todo = [int(g) for g in candidates if int(g) not in have]
     logger.info(
@@ -299,35 +385,44 @@ def collect_statcast_extra(
         year, window_desc, len(candidates), len(have), len(todo),
     )
 
-    # 3. fetch + parse the missing gamefeeds (reuses the existing HTTP/pydantic path).
+    # 3. fetch + parse the missing gamefeeds (reuses the existing HTTP/pydantic path),
+    # ``workers`` of them concurrently.
     import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    new_rows: list[dict[str, Any]] = []
-    loaded = failed = 0
-    for i, gpk in enumerate(todo):
+    def _fetch_one(gpk: int) -> tuple[int, list[dict[str, Any]] | None, str | None]:
         # The Savant /gf bodies are large (1-2 MB) and occasionally arrive
         # truncated (IncompleteRead); a couple of retries clears the transient.
-        feed = None
         last_exc: Exception | None = None
         for attempt in range(1, max(1, fetch_attempts) + 1):
             try:
                 feed = fetch_and_parse_gamefeed(gpk)
-                break
+                if pause_sec > 0:
+                    time.sleep(pause_sec)
+                return gpk, _rows_for_game(gpk, feed), None
             except Exception as exc:  # noqa: BLE001 - isolate per-game failures
                 last_exc = exc
                 if attempt < fetch_attempts:
                     time.sleep(min(2.0 * attempt, 5.0))
-        if feed is None:
-            logger.error(
-                "game_pk={}: failed to fetch/parse gamefeed after {} attempts: {}",
-                gpk, fetch_attempts, last_exc,
-            )
-            failed += 1
-        else:
-            new_rows.extend(_rows_for_game(gpk, feed))
-            loaded += 1
-        if pause_sec > 0 and i + 1 < len(todo):
-            time.sleep(pause_sec)
+        return gpk, None, str(last_exc)
+
+    new_rows: list[dict[str, Any]] = []
+    loaded = failed = 0
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futures = [pool.submit(_fetch_one, gpk) for gpk in todo]
+        for i, fut in enumerate(as_completed(futures), 1):
+            gpk, rows, err = fut.result()
+            if err is not None:
+                logger.error(
+                    "game_pk={}: failed to fetch/parse gamefeed after {} attempts: {}",
+                    gpk, fetch_attempts, err,
+                )
+                failed += 1
+            else:
+                new_rows.extend(rows or [])
+                loaded += 1
+            if i % 50 == 0 or i == len(todo):
+                logger.info("Fetched {}/{} games ({} loaded, {} failed)", i, len(todo), loaded, failed)
 
     if not new_rows and existing is None:
         logger.info("Nothing to publish for {} (no new rows, no existing file)", extra_file)
@@ -338,9 +433,16 @@ def collect_statcast_extra(
     if existing is not None:
         frames.append(existing)
     if new_rows:
-        frames.append(pl.DataFrame(new_rows))
+        frames.append(_prepare_statcast_extra_frame(pl.DataFrame(new_rows)))
     combined = frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
     combined = combined.unique(subset=["game_pk", "play_id"], keep="last")
+
+    # events (PA-terminal outcome, e.g. "Home Run"/"Strikeout") is the one column
+    # from the removed events/description/result trio worth keeping — as a small,
+    # fixed-vocabulary Enum instead of a repeated plain string.
+    if "events" in combined.columns:
+        categories = sorted(v for v in combined["events"].unique().to_list() if v is not None)
+        combined = combined.with_columns(pl.col("events").cast(pl.Enum(categories)))
 
     out = work_dir / extra_file
     combined.write_parquet(out)

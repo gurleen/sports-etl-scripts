@@ -177,6 +177,7 @@ def statcast_extra(
     backfill: bool = typer.Option(False, "--backfill", help="Fetch every not-yet-present Final game for the whole season (ignores --days)."),
     pause_sec: float = typer.Option(0.0, help="Pause between gamefeed fetches."),
     fetch_attempts: int = typer.Option(4, help="Retries per gamefeed (Savant /gf can truncate large bodies)."),
+    workers: int = typer.Option(1, help="Concurrent fetch workers."),
     no_upload: bool = typer.Option(False, "--no-upload", help="Write Parquet locally but skip the Hub upload."),
 ):
     """Fetch missing Savant gamefeeds and publish statcast_<year>.parquet.
@@ -191,7 +192,7 @@ def statcast_extra(
     y = year or date.today().year
     res = hf_sync.collect_statcast_extra(
         year=y, days=(None if backfill else days), work_dir=work, upload=not no_upload,
-        pause_sec=pause_sec, fetch_attempts=fetch_attempts,
+        pause_sec=pause_sec, fetch_attempts=fetch_attempts, workers=workers,
     )
     logger.info("statcast-extra publish complete: {}", res)
     _publish_card(no_upload)
