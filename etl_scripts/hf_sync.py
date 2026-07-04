@@ -433,7 +433,7 @@ def collect_statcast_extra(
     if existing is not None:
         frames.append(existing)
     if new_rows:
-        frames.append(_prepare_statcast_extra_frame(pl.DataFrame(new_rows)))
+        frames.append(_prepare_statcast_extra_frame(pl.DataFrame(new_rows, infer_schema_length=None)))
     combined = frames[0] if len(frames) == 1 else pl.concat(frames, how="diagonal_relaxed")
     combined = combined.unique(subset=["game_pk", "play_id"], keep="last")
 
