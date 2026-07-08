@@ -1,4 +1,5 @@
-# Publishes the schedule + play-by-play datasets to Hugging Face as Parquet.
+# Publishes the schedule + play-by-play datasets to Hugging Face as Parquet, then
+# rebuilds the PBP marts (batting/pitching stats, splits, coverage) on top.
 #
 # Writes mlb_schedule.parquet, retrosheet_plays.parquet and baserunning_events.parquet
 # to the dataset repo (HF_DATASET_REPO, default gurleen/baseball). Runs entirely
@@ -42,3 +43,5 @@ jobs:
         run: uv sync --extra hf
       - name: Publish schedule + play-by-play
         run: uv run --extra hf etl hf pbp --days "${{ github.event.inputs.days || '3' }}"
+      - name: Rebuild + publish marts
+        run: uv run --extra hf etl hf marts

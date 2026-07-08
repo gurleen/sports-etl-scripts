@@ -199,6 +199,55 @@ def statcast_extra(
 
 
 @app.command()
+def marts(
+    no_upload: bool = typer.Option(False, "--no-upload", help="Write Parquet locally but skip the Hub upload."),
+):
+    """Rebuild the PBP marts (batting/pitching stats, splits, coverage) and publish to the Hub.
+
+    Polars port of the dbt marts (except statcast_events/abs_challenges, which stay
+    dbt-only). Run after a pbp backfill so mlb_schedule.parquet / retrosheet_plays.parquet
+    are current. Needs weights.parquet on the Hub for the per-season wOBA/FIP weights
+    (run `etl hf weights` first); player names come from the Chadwick Register.
+    """
+    work = _work_dir()
+    from etl_scripts import marts as marts_mod
+
+    counts = marts_mod.run_all(work, upload=not no_upload)
+    logger.info("Marts build complete: {}", counts)
+    _publish_card(no_upload)
+
+
+@app.command()
+def weights(
+    csv: Path = typer.Argument(..., exists=True, readable=True, help="FanGraphs guts-data CSV export."),
+    no_upload: bool = typer.Option(False, "--no-upload", help="Write Parquet locally but skip the Hub upload."),
+):
+    """Convert a FanGraphs guts-data CSV into weights.parquet and publish it to the Hub.
+
+    Manual step, not scheduled: FanGraphs' guts API
+    (fangraphs.com/api/tools/guts/data?type=cn) sits behind a Cloudflare challenge
+    that blocks datacenter IPs, including GitHub Actions runners, so it can't be
+    fetched in CI. Download the CSV yourself from
+    https://www.fangraphs.com/guts.aspx?type=cn and re-run this command whenever a
+    new season's constants are published; the export is cumulative (every season
+    back to 1871), so each run fully replaces weights.parquet.
+    """
+    work = _work_dir()
+    from etl_scripts import hf_sync
+    from etl_scripts import marts as marts_mod
+
+    df = marts_mod.weights_from_fangraphs_csv(csv)
+    out = work / "weights.parquet"
+    df.write_parquet(out)
+    logger.info("Wrote {} rows -> {}", df.height, out)
+    if not no_upload:
+        hf_sync.upload_parquet(out, "weights.parquet")
+    else:
+        logger.info("--no-upload: left {} on disk only", out)
+    _publish_card(no_upload)
+
+
+@app.command()
 def retrosheet(
     full: bool = typer.Option(False, "--full", help="Build every season (single plays.zip) instead of a year range."),
     start_year: int | None = typer.Option(None, help="First season (range mode; defaults to earliest available)."),

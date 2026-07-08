@@ -17,9 +17,42 @@ One Parquet file per table, except `statcast_extra`, which is season-partitioned
 | `baserunning_events.parquet` | `baserunning_events` | `etl hf pbp` |
 | `mlb_transactions.parquet` | `mlb_transactions` | `etl hf transactions` |
 | `statcast_<year>.parquet` | `statcast_extra` | `etl hf statcast-extra` |
+| `weights.parquet` | FanGraphs guts data (per-season wOBA/FIP constants) | `etl hf weights` (manual) |
+| `mart_*.parquet` (batting/pitching stats + splits, game coverage) | Polars port of the dbt PBP marts | `etl hf marts` |
 
 **Not published** (intentionally out of scope): the original `statcast` pitch
 table, `mlb_roster_entries`, and `mlb_contracts`.
+
+### Marts
+
+`etl hf marts` (implemented in [`etl_scripts/marts.py`](../etl_scripts/marts.py))
+is a Polars port of the dbt PBP marts, run entirely against Parquet already on the
+Hub — no Postgres warehouse involved. It writes 8 `mart_*.parquet` files
+(season/monthly batting and pitching stats, season splits, and schedule-vs-pbp
+coverage). It needs `mlb_schedule.parquet` / `retrosheet_plays.parquet` (run
+`etl hf pbp` first) and `weights.parquet` (run `etl hf weights` first) to already
+exist on the Hub; player names come from the Chadwick Bureau Register.
+`statcast_events` and `abs_challenges` stay dbt-only and are not part of this port.
+
+### Weights (FanGraphs guts data)
+
+`weights.parquet` holds the per-season wOBA/FIP constants (`w_bb`, `w_single`,
+`league_woba`, `c_fip`, etc.) that the marts need for wRC+/FIP. It comes from
+FanGraphs' [guts page](https://www.fangraphs.com/guts.aspx?type=cn), not from
+`etl hf pbp` — and unlike every other dataset here, it's **not fetched in CI**.
+FanGraphs' guts API sits behind a Cloudflare challenge that blocks datacenter
+IPs (GitHub Actions runners included; confirmed by testing — even a plain
+homepage request 403s), so there's no reliable automated path.
+
+Instead, refresh it manually whenever a new season's constants are published:
+
+1. Download the CSV from https://www.fangraphs.com/guts.aspx?type=cn (the page
+   has an "Export Data" / CSV link).
+2. Run `uv run --extra hf etl hf weights path/to/the.csv`.
+
+The export is cumulative (every season back to 1871), so each run fully
+replaces `weights.parquet` — there's no accumulation/merge step like the other
+datasets.
 
 ### Subsets in the Data Studio
 
@@ -69,6 +102,13 @@ uv run --extra hf etl hf statcast-extra --backfill --year 2026
 uv run --extra hf etl hf retrosheet --full
 uv run --extra hf etl hf retrosheet --start-year 2000 --end-year 2024
 
+# rebuild the PBP marts (run after pbp/retrosheet publish so the schedule/pbp
+# snapshot is current, and after `etl hf weights` at least once)
+uv run --extra hf etl hf marts
+
+# refresh weights.parquet from a manually-downloaded FanGraphs guts CSV
+uv run --extra hf etl hf weights ~/Downloads/fangraphs-guts-data.csv
+
 # local dry run: write the Parquet but don't upload to the Hub
 uv run --extra hf etl hf transactions --days 1 --no-upload
 ```
@@ -85,26 +125,32 @@ Useful env vars: `HF_DATASET_REPO` (target repo), `HF_TOKEN` (write token),
 
 | Workflow | Trigger | Output |
 | --- | --- | --- |
-| [`hf-pbp.yml`](../.github/workflows/hf-pbp.yml) | daily 14:00 UTC + manual | schedule, retrosheet_plays, baserunning_events |
+| [`hf-pbp.yml`](../.github/workflows/hf-pbp.yml) | daily 14:00 UTC + manual | schedule, retrosheet_plays, baserunning_events, then `mart_*` |
 | [`hf-transactions.yml`](../.github/workflows/hf-transactions.yml) | daily 14:30 UTC + manual | transactions |
 | [`hf-statcast-extra.yml`](../.github/workflows/hf-statcast-extra.yml) | daily 15:00 UTC + manual | statcast_\<year\> |
-| [`hf-retrosheet-historical.yml`](../.github/workflows/hf-retrosheet-historical.yml) | manual only | retrosheet_plays (`retrosheet` source) |
-| [`hf-backfill.yml`](../.github/workflows/hf-backfill.yml) | manual only | full-season pbp + statcast_\<year\> |
+| [`hf-retrosheet-historical.yml`](../.github/workflows/hf-retrosheet-historical.yml) | manual only | retrosheet_plays (`retrosheet` source), then `mart_*` |
+| [`hf-backfill.yml`](../.github/workflows/hf-backfill.yml) | manual only | full-season pbp + statcast_\<year\>, then `mart_*` |
 
 The statcast-extra job is scheduled after the PBP job so it reads a fresh
-`mlb_schedule.parquet`.
+`mlb_schedule.parquet`. Every workflow that can change `mlb_schedule.parquet` or
+`retrosheet_plays.parquet` ends with an `etl hf marts` step so the `mart_*`
+outputs never drift from the pbp data they're built from; `hf-transactions.yml`
+and `hf-statcast-extra.yml` don't touch those tables, so they skip it. There's no
+scheduled workflow for `etl hf weights` — it's a manual step (see
+[Weights](#weights-fangraphs-guts-data) above).
 
 ### Full-season backfill workflow
 
-`hf-backfill.yml` runs `etl hf pbp --backfill` then `etl hf statcast-extra
---backfill` for one season. Trigger it from the Actions tab (or the API) with
-inputs `year` (defaults to current) and `repo` (target dataset repo, defaults to
-`gurleen/baseball` — set it to `gurleen/baseball-test` to backfill the test repo).
-It's a heavy one-off; the nightly workflows keep things current afterward.
+`hf-backfill.yml` runs `etl hf pbp --backfill`, then `etl hf statcast-extra
+--backfill`, then `etl hf marts` for one season. Trigger it from the Actions tab
+(or the API) with inputs `year` (defaults to current) and `repo` (target dataset
+repo, defaults to `gurleen/baseball` — set it to `gurleen/baseball-test` to
+backfill the test repo). It's a heavy one-off; the nightly workflows keep things
+current afterward.
 
 ## Setup
 
 Add a repository secret **`HF_TOKEN`** — a write-scoped Hugging Face access token
 ([hf.co/settings/tokens](https://huggingface.co/settings/tokens)) with write
 access to the target dataset repo. The dataset repo is created automatically on
-first upload if it doesn't exist.
+first upload if it doesn't exist. None of the `hf-*` jobs touch Postgres.

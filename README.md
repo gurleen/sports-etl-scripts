@@ -43,6 +43,8 @@ uv run --extra hf etl hf pbp --days 3          # mlb_schedule / retrosheet_plays
 uv run --extra hf etl hf transactions --days 7 # mlb_transactions.parquet
 uv run --extra hf etl hf statcast-extra --days 3   # statcast_<year>.parquet (Savant gamefeed)
 uv run --extra hf etl hf retrosheet --full     # one-off historical Retrosheet backfill
+uv run --extra hf etl hf marts                 # Polars port of the dbt PBP marts -> mart_*.parquet
+uv run --extra hf etl hf weights guts.csv       # FanGraphs guts CSV -> weights.parquet (manual, see below)
 
 uv run --extra hf etl hf pbp --backfill --year 2026          # full-season backfill (skips loaded games)
 uv run --extra hf etl hf statcast-extra --backfill --year 2026
@@ -51,10 +53,16 @@ uv run --extra hf etl hf statcast-extra --backfill --year 2026
 `--backfill` loads every not-yet-present Final regular-season game for the season
 (there's also a manual `hf-backfill.yml` workflow that runs both).
 Add `--no-upload` to export the Parquet locally without pushing to the Hub. The
-workflows need a write-scoped `HF_TOKEN` repository secret. See
+workflows only need a write-scoped `HF_TOKEN` repository secret — no database
+credentials. Every workflow that touches `mlb_schedule.parquet` /
+`retrosheet_plays.parquet` runs `etl hf marts` afterward so the marts stay in
+sync; `etl hf marts` also needs `weights.parquet` on the Hub, which is **not**
+fetched automatically — FanGraphs' guts API is Cloudflare-gated against
+datacenter IPs (GitHub Actions included), so refresh it yourself with
+`etl hf weights <csv>` whenever a new season's constants are published. See
 [docs/huggingface.md](docs/huggingface.md) for details, scheduling, and the
-datasets that are intentionally **not** published (`statcast`, `mlb_roster_entries`,
-`mlb_contracts`).
+datasets that are intentionally **not** published (`statcast`,
+`mlb_roster_entries`, `mlb_contracts`).
 
 ## dbt
 

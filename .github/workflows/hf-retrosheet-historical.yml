@@ -2,8 +2,8 @@
 #
 # Builds the historical Retrosheet play-by-play and merges it into
 # retrosheet_plays.parquet (replacing only the 'retrosheet' source rows, leaving
-# the nightly 'mlbam' rows intact). Manual only — this is a large, rarely-changing
-# backfill, not a nightly job.
+# the nightly 'mlbam' rows intact), then rebuilds the PBP marts on top. Manual
+# only — this is a large, rarely-changing backfill, not a nightly job.
 #
 # Required repository secret:
 #   HF_TOKEN — a write-scoped Hugging Face access token.
@@ -61,3 +61,5 @@ jobs:
             fi
           fi
           uv run --extra hf etl hf retrosheet $ARGS
+      - name: Rebuild + publish marts
+        run: uv run --extra hf etl hf marts

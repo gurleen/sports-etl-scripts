@@ -2,8 +2,9 @@
 #
 # Loads every not-yet-present Final regular-season game for a season into
 # retrosheet_plays / baserunning_events / mlb_schedule and statcast_<year>, then
-# publishes the Parquet to the dataset repo. Manual only — this is a heavy,
-# occasional job (the nightly hf-* workflows keep things current afterward).
+# publishes the Parquet to the dataset repo and rebuilds the PBP marts on top.
+# Manual only — this is a heavy, occasional job (the nightly hf-* workflows keep
+# things current afterward).
 #
 # Required repository secret:
 #   HF_TOKEN — a write-scoped Hugging Face access token.
@@ -57,3 +58,5 @@ jobs:
           YEAR_ARG=""
           if [ -n "${{ steps.year.outputs.value }}" ]; then YEAR_ARG="--year ${{ steps.year.outputs.value }}"; fi
           uv run --extra hf etl hf statcast-extra --backfill $YEAR_ARG
+      - name: Rebuild + publish marts
+        run: uv run --extra hf etl hf marts

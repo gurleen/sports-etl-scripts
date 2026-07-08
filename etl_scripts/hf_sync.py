@@ -37,6 +37,15 @@ DATASET_CONFIGS: list[tuple[str, str]] = [
     ("baserunning_events", "baserunning_events.parquet"),
     ("mlb_transactions", "mlb_transactions.parquet"),
     ("statcast", "statcast_*.parquet"),
+    ("weights", "weights.parquet"),
+    ("batting_stats_season", "mart_batting_stats_season.parquet"),
+    ("pitching_stats_season", "mart_pitching_stats_season.parquet"),
+    ("batting_stats_monthly", "mart_batting_stats_monthly.parquet"),
+    ("pitching_stats_monthly", "mart_pitching_stats_monthly.parquet"),
+    ("batting_splits_season", "mart_batting_splits_season.parquet"),
+    ("pitching_splits_season", "mart_pitching_splits_season.parquet"),
+    ("game_coverage", "mart_game_coverage.parquet"),
+    ("daily_game_coverage", "mart_daily_game_coverage.parquet"),
 ]
 
 
