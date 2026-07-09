@@ -12,8 +12,8 @@ name: HF Publish - PBP
 
 on:
   schedule:
-    # 14:00 UTC daily (run before the statcast-extra job, which reads this snapshot).
-    - cron: "0 14 * * *"
+    # 09:00 UTC (5:00 AM Eastern) daily (run before the statcast-extra job, which reads this snapshot).
+    - cron: "0 9 * * *"
   workflow_dispatch:
     inputs:
       days:

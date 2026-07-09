@@ -11,7 +11,8 @@ name: HF Publish - Transactions
 
 on:
   schedule:
-    - cron: "30 14 * * *"
+    # 09:30 UTC (5:30 AM Eastern) daily.
+    - cron: "30 9 * * *"
   workflow_dispatch:
     inputs:
       days:

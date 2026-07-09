@@ -125,9 +125,9 @@ Useful env vars: `HF_DATASET_REPO` (target repo), `HF_TOKEN` (write token),
 
 | Workflow | Trigger | Output |
 | --- | --- | --- |
-| [`hf-pbp.yml`](../.github/workflows/hf-pbp.yml) | daily 14:00 UTC + manual | schedule, retrosheet_plays, baserunning_events, then `mart_*` |
-| [`hf-transactions.yml`](../.github/workflows/hf-transactions.yml) | daily 14:30 UTC + manual | transactions |
-| [`hf-statcast-extra.yml`](../.github/workflows/hf-statcast-extra.yml) | daily 15:00 UTC + manual | statcast_\<year\> |
+| [`hf-pbp.yml`](../.github/workflows/hf-pbp.yml) | daily 09:00 UTC (5:00 AM Eastern) + manual | schedule, retrosheet_plays, baserunning_events, then `mart_*` |
+| [`hf-transactions.yml`](../.github/workflows/hf-transactions.yml) | daily 09:30 UTC (5:30 AM Eastern) + manual | transactions |
+| [`hf-statcast-extra.yml`](../.github/workflows/hf-statcast-extra.yml) | daily 10:00 UTC (6:00 AM Eastern) + manual | statcast_\<year\> |
 | [`hf-retrosheet-historical.yml`](../.github/workflows/hf-retrosheet-historical.yml) | manual only | retrosheet_plays (`retrosheet` source), then `mart_*` |
 | [`hf-backfill.yml`](../.github/workflows/hf-backfill.yml) | manual only | full-season pbp + statcast_\<year\>, then `mart_*` |
 
